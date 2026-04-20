@@ -17,7 +17,19 @@
       "Bash(schtasks *)",
       "Bash(cmd *)",
       "Bash(bash *)",
-      "Bash(findstr \"PhotoOrganizer\")"
+      "Bash(findstr \"PhotoOrganizer\")",
+      "Bash(Select-Object -First 20)"
     ]
+  },
+  "mcpServers": {
+    "ollama": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["F:/mcp-ollama/dist/index.js"],
+      "env": {
+        "OLLAMA_HOST": "http://localhost:11434",
+        "OLLAMA_MODEL": "qwen3.5"
+      }
+    }
   }
 }
