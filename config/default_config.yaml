@@ -1,0 +1,29 @@
+# ML Project Configuration
+
+training:
+  # Hyperparameters
+  learning_rate: 1e-4
+  batch_size: 32
+  epochs: 100
+  weight_decay: 1e-5
+
+  # Data
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+  # Device
+  device: cpu  # Options: cpu, cuda:0, auto
+
+optimization:
+  optimizer: adam  # Options: adam, sgd, adamw
+  grad_accumulation_steps: 1
+
+mlflow:
+  tracking_uri: ./mlruns
+  experiment_name: default
+  log_interval: 1  # Log every N steps
+
+logging:
+  level: INFO
+  verbose: true

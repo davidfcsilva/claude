@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python space_shooter.py)",
+      "Bash(!C:\\\\Users\\\\david\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe *)",
+      "Bash(C:\\\\Users\\\\david\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe *)",
+      "Bash(choco install *)",
+      "Bash(exiftool -version)",
+      "Bash(ffmpeg -version)",
+      "Bash(magick version *)",
+      "Bash(where exiftool *)",
+      "Bash(where magick *)",
+      "Bash(where identify *)",
+      "Bash(where tesseract *)",
+      "Bash(powershell *)",
+      "Bash(schtasks *)",
+      "Bash(cmd *)",
+      "Bash(bash *)",
+      "Bash(findstr \"PhotoOrganizer\")"
+    ]
+  }
+}
