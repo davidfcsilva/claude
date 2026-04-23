@@ -1,41 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pip install *)",
-      "Bash(python space_shooter.py)",
-      "Bash(!C:\\\\Users\\\\david\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe *)",
-      "Bash(C:\\\\Users\\\\david\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe *)",
-      "Bash(choco install *)",
-      "Bash(exiftool -version)",
-      "Bash(ffmpeg -version)",
-      "Bash(magick version *)",
-      "Bash(where exiftool *)",
-      "Bash(where magick *)",
-      "Bash(where identify *)",
-      "Bash(where tesseract *)",
-      "Bash(powershell *)",
-      "Bash(schtasks *)",
-      "Bash(cmd *)",
-      "Bash(bash *)",
-      "Bash(findstr \"PhotoOrganizer\")",
-      "Bash(Select-Object -First 20)",
-      "Bash(curl -s http://localhost:11434/api/tags)",
-      "Bash(node \"C:/Users/dsilva/mcp-ollama/dist/index.js\")",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Available models:', len\\(d['models']\\)\\); print\\('\\\\\\\\n'.join\\(f'  - {m[\\\\\"name\\\\\"]}' for m in d['models'][:5]\\)\\)\")",
-      "WebSearch"
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
-  },
-  "mcpServers": {
-    "ollama": {
-      "transport": "stdio",
-      "command": "node",
-      "args": [
-        "C:/Users/dsilva/mcp-ollama/dist/index.js"
-      ],
-      "env": {
-        "OLLAMA_HOST": "http://localhost:11434",
-        "OLLAMA_MODEL": "qwen3.5"
-      }
-    }
   }
 }
