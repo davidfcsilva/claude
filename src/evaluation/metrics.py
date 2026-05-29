@@ -6,7 +6,7 @@ from typing import Any
 class Accuracy:
     """Accuracy metric."""
 
-    def __init__(self, num_classes: int) -> None:
+    def __init__(self, num_classes: int = 10) -> None:
         """Initialize accuracy metric."""
         self.num_classes = num_classes
         self.correct = 0

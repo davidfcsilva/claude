@@ -74,3 +74,6 @@ __pycache__/
 # System
 .DS_Store
 Thumbs.db
+
+# Claude Code
+.claude/

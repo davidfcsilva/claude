@@ -30,22 +30,23 @@ def test_model_handles_different_configurations():
 
 
 @given("a model is initialized")
-def test_model_initialized():
+def model_initialized():
     """Given a model is initialized."""
     model = BaseModel()
     assert model is not None
+    return model
 
 
 @when("the model is set to training mode")
-def model_set_to_training():
+def model_set_to_training(model):
     """When model is set to training mode."""
-    # Implementation would call model.train()
+    model.train()
 
 
 @then("the model should be in training mode")
-def model_in_training_mode():
+def model_in_training_mode(model):
     """Then model should be in training mode."""
-    # Implementation would verify model is in training mode
+    assert model.training is True
 
 
 @scenario('../features/classification.feature', 'Model switches between train and eval modes')
@@ -62,12 +63,12 @@ def model_with_config(model_type: str):
 
 
 @when("the model is used")
-def model_used():
+def model_used(model):
     """When model is used."""
-    # Model operations here
+    return model()
 
 
 @then("the model should work correctly")
-def model_works_correctly():
+def model_works_correctly(result):
     """Then the model should work correctly."""
-    # Verification logic here
+    assert result is not None

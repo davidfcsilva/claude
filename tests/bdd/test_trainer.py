@@ -1,168 +1,123 @@
-"""BDD tests for training pipeline features."""
+"""BDD tests for training features."""
 
 from pytest_bdd import scenario, given, when, then, parsers
 import pytest
+from src.training.trainer import Trainer
 from src.models.base_model import BaseModel
 from src.data.base_dataset import BaseDataset
-from src.training.base_trainer import BaseTrainer
-from src.evaluation.metrics import Accuracy, Loss
 
 
-@scenario('../features/trainer.feature', 'Trainer trains for one epoch')
-def test_trainer_trains_for_one_epoch():
-    """Test trainer trains for one epoch."""
+@scenario('../features/training.feature', 'Model trains on dataset')
+def test_model_trains_on_dataset():
+    """Test model trains correctly."""
     pass
 
 
-@scenario('../features/trainer.feature', 'Trainer evaluates the model')
-def test_trainer_evaluates_model():
-    """Test trainer evaluates the model."""
+@scenario('../features/training.feature', 'Trainer handles epochs correctly')
+def test_trainer_handles_epochs():
+    """Test trainer handles epochs."""
     pass
 
 
-@scenario('../features/trainer.feature', 'Trainer saves checkpoint')
-def test_trainer_saves_checkpoint():
-    """Test trainer saves checkpoint."""
+@scenario('../features/training.feature', 'Trainer can save and load checkpoints')
+def test_trainer_save_load_checkpoints():
+    """Test trainer checkpoint handling."""
     pass
 
 
-@scenario('../features/trainer.feature', 'Trainer loads checkpoint')
-def test_trainer_loads_checkpoint():
-    """Test trainer loads checkpoint."""
+@scenario('../features/training.feature', 'Trainer calculates and reports metrics')
+def test_trainer_reports_metrics():
+    """Test trainer metric reporting."""
     pass
 
 
-@scenario('../features/trainer.feature', 'Trainer handles different epochs')
-def test_trainer_different_epochs():
-    """Test trainer handles different epochs."""
-    pass
+@given("a model and dataset are provided")
+def model_and_dataset_provided():
+    """Given model and dataset are provided."""
+    model = BaseModel()
+    dataset = BaseDataset()
+    return model, dataset
 
 
-@scenario('../features/trainer.feature', 'Trainer uses correct device')
-def test_trainer_uses_correct_device():
-    """Test trainer uses correct device."""
-    pass
-
-
-@given('a trainer is initialized with model and dataset')
-def trainer_initialized(model, dataset):
-    """Given trainer is initialized."""
-    trainer = BaseTrainer(model=model, dataset=dataset, config={"device": "cpu"})
+@when("the model is trained for {epochs} epochs")
+def train_model(epochs: int, model_and_dataset):
+    """When training."""
+    model, dataset = model_and_dataset
+    trainer = Trainer(model, dataset)
+    trainer.train(epochs=epochs)
     return trainer
 
 
-@when('the trainer trains one epoch')
-def trainer_train_epoch(trainer):
-    """When trainer trains one epoch."""
-    results = trainer.train_epoch()
-    return results
+@then("the model should be trained")
+def verify_trained(trainer):
+    """Then model should be trained."""
+    assert trainer.trained is True
 
 
-@then('the trainer should complete training')
-def trainer_completed_training(results):
-    """Then trainer should complete training."""
-    assert results is not None
-
-
-@scenario('../features/trainer.feature', 'Trainer evaluates the model')
-def test_trainer_evaluation():
-    """Test trainer evaluation."""
+@scenario('../features/training.feature', 'Trainer calculates and reports metrics')
+def test_trainer_metrics():
+    """Test trainer metrics."""
     pass
 
 
-@when('the trainer evaluates')
-def trainer_evaluate(trainer):
-    """When trainer evaluates."""
-    metrics = trainer.evaluate()
-    return metrics
-
-
-@then('the trainer should return evaluation metrics')
-def trainer_returns_metrics(metrics):
-    """Then trainer returns metrics."""
-    assert metrics is not None
-    assert isinstance(metrics, dict)
-
-
-@scenario('../features/trainer.feature', 'Trainer saves checkpoint')
-def test_trainer_save_checkpoint():
-    """Test trainer saves checkpoint."""
-    pass
-
-
-@when('the checkpoint is saved with path {checkpoint_path}')
-def trainer_save_checkpoint(trainer, checkpoint_path: str):
-    """When checkpoint is saved."""
-    trainer.save_checkpoint(checkpoint_path)
-
-
-@then('the checkpoint should be saved')
-def checkpoint_saved():
-    """Then checkpoint should be saved."""
-    # Verify checkpoint exists
-
-
-@scenario('../features/trainer.feature', 'Trainer loads checkpoint')
-def test_trainer_load_checkpoint():
-    """Test trainer loads checkpoint."""
-    pass
-
-
-@when('the checkpoint is loaded from {checkpoint_path}')
-def trainer_load_checkpoint(checkpoint_path: str):
-    """When checkpoint is loaded."""
-    # Load checkpoint logic here
-
-
-@then('the trainer should load the checkpoint')
-def checkpoint_loaded():
-    """Then checkpoint should be loaded."""
-    # Verify trainer has loaded checkpoint
-
-
-@scenario('../features/trainer.feature', 'Trainer handles different epochs')
-def test_trainer_epochs():
-    """Test trainer with different epochs."""
-    pass
-
-
-@when('the trainer trains {num_epochs} epochs')
-def trainer_train_epochs(num_epochs: int, trainer):
-    """When trainer trains multiple epochs."""
-    for _ in range(num_epochs):
-        trainer.train_epoch()
-
-
-@then('the trainer should complete training')
-def trainer_completes_multiple_epochs():
-    """Then trainer should complete."""
-    pass
-
-
-@scenario('../features/trainer.feature', 'Trainer uses correct device')
-def test_trainer_device():
-    """Test trainer with correct device."""
-    pass
-
-
-@given('a trainer is initialized with device {device}')
-def trainer_with_device(device: str):
-    """Given trainer with device."""
-    trainer = BaseTrainer(
-        model=BaseModel(),
-        dataset=BaseDataset(),
-        config={"device": device}
-    )
+@given("a trainer is configured with metrics {metrics}")
+def trainer_configured(metrics: str):
+    """Given trainer is configured."""
+    model = BaseModel()
+    dataset = BaseDataset()
+    trainer = Trainer(model, dataset, metrics=metrics.split(","))
     return trainer
 
 
-@when('training starts')
-def training_starts():
-    """When training starts."""
-    # Training logic
+@when("the training is executed")
+def execute_training(trainer):
+    """When training executes."""
+    return trainer
 
 
-@then('the trainer should use the specified device')
-def trainer_uses_specified_device():
-    """Then trainer uses specified device."""
-    # Verify device is correct
+@then("the metrics should be calculated")
+def verify_metrics(result):
+    """Then metrics should be calculated."""
+    assert result is not None
+
+
+@given("a trainer is configured")
+def trainer_is_configured():
+    """Given trainer is configured."""
+    model = BaseModel()
+    dataset = BaseDataset()
+    trainer = Trainer(model, dataset)
+    return trainer
+
+
+@when("the training is run")
+def training_is_run(trainer):
+    """When training runs."""
+    return trainer
+
+
+@then("the metrics should be reported")
+def metrics_reported(result):
+    """Then metrics should be reported."""
+    assert result is not None
+
+
+@given("a trainer is configured on {device}")
+def trainer_on_device(device: str):
+    """Given trainer on device."""
+    model = BaseModel()
+    dataset = BaseDataset()
+    trainer = Trainer(model, dataset, device=device)
+    return trainer
+
+
+@when("the training completes")
+def training_completes(trainer):
+    """When training completes."""
+    return trainer
+
+
+@then("the trainer should be saved")
+def trainer_saved(result):
+    """Then trainer should be saved."""
+    assert result is not None

@@ -1,0 +1,20 @@
+{
+  "name": "local-git-branch-agent",
+  "version": "1.0.0",
+  "description": "Local MCP agent for managing git branches",
+  "type": "agent",
+  "capabilities": [
+    "git:branch:list",
+    "git:branch:create",
+    "git:branch:delete",
+    "git:branch:merge",
+    "git:status",
+    "git:commit"
+  ],
+  "configuration": {
+    "branch_prefix": "feat",
+    "default_branch": "main",
+    "auto_merge": false,
+    "cleanup_on_merge": true
+  }
+}
