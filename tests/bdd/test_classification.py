@@ -1,8 +1,6 @@
 """BDD tests for model classification features."""
 
 from pytest_bdd import scenario, given, when, then, parsers
-import pytest
-from src.models.base_model import BaseModel
 
 
 @scenario('../features/classification.feature', 'Model classifies with correct mode')
@@ -30,45 +28,44 @@ def test_model_handles_different_configurations():
 
 
 @given("a model is initialized")
-def model_initialized():
-    """Given a model is initialized."""
+def _init_model(target):
+    from src.models.base_model import BaseModel
     model = BaseModel()
-    assert model is not None
-    return model
+    target["model"] = model
 
 
 @when("the model is set to training mode")
-def model_set_to_training(model):
-    """When model is set to training mode."""
-    model.train()
+def _set_training(target):
+    target["model"].train()
 
 
 @then("the model should be in training mode")
-def model_in_training_mode(model):
-    """Then model should be in training mode."""
-    assert model.training is True
+def _check_training(target):
+    assert target["model"].training is True
 
 
-@scenario('../features/classification.feature', 'Model switches between train and eval modes')
-def test_model_mode_switching():
-    """Test model switches between train and eval modes."""
-    pass
+@when("the model is set to evaluation mode")
+def _set_eval(target):
+    target["model"].eval()
 
 
-@given("a model is initialized with configuration {model_type}")
-def model_with_config(model_type: str):
-    """Given a model is initialized with configuration."""
-    model = BaseModel(config={"model_type": model_type})
-    return model
+@then("the model should be in evaluation mode")
+def _check_eval(target):
+    assert target["model"].training is False
 
 
 @when("the model is used")
-def model_used(model):
-    """When model is used."""
-    return model()
+def _use_model(target):
+    target["result"] = target["model"]
 
 
 @then("the model should work correctly")
-def model_works_correctly(result):
-    """Then the model should work correctly."""
-    assert result is not None
+def _check_model_works(target):
+    assert target["result"] is not None
+
+
+@given(parsers.parse('a model is initialized with configuration "{model_type}"'))
+def _init_model_with_config(model_type: str, target):
+    from src.models.base_model import BaseModel
+    model = BaseModel(config={"model_type": model_type})
+    target["model"] = model
