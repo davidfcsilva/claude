@@ -100,10 +100,58 @@ export TORCH_HOME=~/.cache/torch
 
 Experiments are logged to `./mlruns/` with tracking URI configured in `config/default_config.yaml`.
 
-## Version Control Policy
-- Auto-commit after every discrete task — no asking for permission
-- Use conventional commits: feat/, fix/, chore:, docs:, refactor/
-- Always stage all working changes before committing (git add .)
-- main is protected — always create a `feat/description` branch from development and work there
-- Push branches when ready, merge via PRs with body ending in "🤖 Generated with Claude Code"
-- Never force-push to shared branches
+## Branching & Merge Workflow
+
+### Branch Model
+```
+main              ← production-ready, protected branch
+development       ← integration branch for all work-in-progress
+feat/description  ← feature branches always fork from development
+```
+
+### Creating a Feature Branch
+```bash
+git checkout development
+git pull origin development
+git checkout -b feat/short-description
+```
+
+### Working on a Feature
+1. Commit frequently with conventional commit messages (`feat/`, `fix/`, `chore/`, `docs/`, `refactor/`).
+2. Stage only the files you intentionally changed (e.g., `git add CLAUDE.md` or `git add src/models/*.py`).
+
+### Creating a Pull Request (development → main)
+
+```bash
+# Push your feature branch
+git push -u origin feat/short-description
+
+# Create a draft PR first so it's visible early
+gh pr create --base main --head feat/short-description --draft \
+  --title "feat: <brief description>" \
+  --body "## What
+<summary of changes>
+
+## Checklist
+- [ ] Tests pass
+- [ ] No lint errors
+- [ ] Self-reviewed my own code
+
+🤖 Generated with Claude Code"
+```
+
+### Completing the PR (Merging to main)
+
+1. **Ensure tests pass:** `pytest` and fix any failures on your branch.
+2. **Mark the PR as ready:** `gh pr ready <pr-number>`
+3. **Request review** if working in a team, or self-review if solo.
+4. **Squash-merge once approved:** `gh pr merge <pr-number> --squash --auto`
+
+### If main moves while you're working
+```bash
+git checkout development
+git pull origin development
+git checkout feat/short-description
+git rebase development   # or merge, whichever you prefer
+# Resolve conflicts if any, then force-push: git push --force-with-lease
+```
