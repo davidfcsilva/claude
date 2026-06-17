@@ -1,0 +1,165 @@
+# Application specification for argocddemo
+# Use this file as the single source of truth for spec-driven development.
+
+application:
+  name: argocddemo
+  description: FastAPI + nginx demo app deployed via ArgoCD to Kubernetes
+  version: "0.1.0"
+  loadbalancer_ip: "192.168.51.206"
+
+---
+# Namespace
+namespace:
+  name: argocddemo
+
+---
+# Backend component spec
+backend:
+  name: backend
+  image: docker.io/library/python:3.12-slim
+  replicas: 2
+  port: 8000
+  startup_command: pip install --quiet fastapi==0.115.6 uvicorn==0.34.0 && exec uvicorn main:app --host 0.0.0.0 --port 8000
+  working_dir: /app
+  probes:
+    readiness:
+      path: /health
+      port: http
+      initial_delay_seconds: 30
+      period_seconds: 10
+    liveness:
+      path: /health
+      port: http
+      initial_delay_seconds: 45
+      period_seconds: 15
+      failure_threshold: 5
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "256Mi" }
+  volume_mounts:
+    - name: app-code
+      path: /app/main.py
+      subpath_key: main.py
+      source_configmap: backend-app-config
+  endpoints:
+    - method: GET
+      path: /health
+      response_type: json
+      example_response: { status: "healthy", version: "0.1.0" }
+      description: Health check endpoint used by readiness/liveness probes
+
+    - method: GET
+      path: /api/items
+      response_type: json
+      example_response:
+        [{ id: 1, name: "Widget A" },
+         { id: 2, name: "Widget B" },
+         { id: 3, name: "Widget C" }]
+      description: Return demo list of items
+
+    - method: GET
+      path: /
+      response_type: json
+      example_response: { message: "Hello from the ArgoCD demo backend!" }
+      description: Root greeting endpoint
+
+---
+# Frontend component spec
+frontend:
+  name: frontend
+  image: docker.io/nginx:alpine
+  replicas: 2
+  port: 80
+  probes:
+    readiness:
+      path: /health
+      port: http
+      initial_delay_seconds: 10
+      period_seconds: 10
+    liveness:
+      path: /health
+      port: http
+      initial_delay_seconds: 15
+      period_seconds: 15
+      failure_threshold: 5
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits:   { cpu: "200m", memory: "128Mi" }
+  volume_mounts:
+    - name: nginx-config-volume
+      path: /etc/nginx/conf.d/default.conf
+      subpath_key: default.conf
+      source_configmap: nginx-config
+
+---
+# Services spec
+services:
+  - name: backend
+    type: ClusterIP
+    port: 8000
+    target_port: http
+    protocol: TCP
+    selector:
+      app.kubernetes.io/name: argocddemo
+      app.kubernetes.io/component: backend
+
+  - name: frontend
+    type: LoadBalancer
+    port: 80
+    target_port: http
+    protocol: TCP
+    loadbalancer_ip: "192.168.51.206"
+    selector:
+      app.kubernetes.io/name: argocddemo
+      app.kubernetes.io/component: frontend
+
+---
+# Ingress spec
+ingress:
+  name: argocddemo-ingress
+  host: argocddemo.local
+  backend_service: frontend
+  backend_port: 80
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+
+---
+# ArgoCD Application spec
+argocd:
+  name: argocddemo
+  namespace: argocd
+  project: default
+  repo_url: "https://github.com/your-org/argocddemo.git"
+  target_revision: HEAD
+  manifest_path: k8s
+  destination_server: "https://kubernetes.default.svc"
+  destination_namespace: argocddemo
+  sync_policy:
+    automated:
+      prune: true
+      self_heal: true
+    create_namespace: true
+
+---
+# ConfigMaps spec
+configmaps:
+  - name: backend-config
+    data:
+        VITE_API_URL: "http://frontend.argocddemo.svc.cluster.local"
+
+  - name: nginx-config
+    description: Nginx reverse proxy config for frontend. Proxies /api/ and /health to backend service, serves static files at /.
+    key: default.conf
+
+  - name: backend-app-config
+    description: Holds the FastAPI application source code as main.py
+    key: main.py
+
+---
+# Network topology
+topology: |
+  LoadBalancer (192.168.51.206:80)
+    └── frontend Service -> nginx pods (port 80)
+           ├── /api/*  -> ClusterIP backend:8000/api/*
+           ├── /health -> ClusterIP backend:8000/health
+           └── /*      -> static files (nginx default root)

@@ -180,3 +180,11 @@ git push origin development
 ```
 
 - **If on a feature branch,** push that feature branch instead, then ensure it's merged into `development` via PR before considering the work complete.
+
+## Spec-Driven Development
+
+### Spec File: `argocddemo-spec.yaml`
+- **Single source of truth.** All definitions for the argocddemo application live in `argocddemo-spec.yaml` at the repository root. Before making any change to the application, read this file to understand what currently exists.
+- **Update the spec before implementing.** When adding or modifying components (endpoints, resources, config values, services), update the spec first, then implement the Kubernetes manifests and source code to match.
+- **Verify against the spec.** After deploying a change, confirm the live state matches the spec by checking endpoints, resource limits, probe configs, and service topology.
+
