@@ -120,6 +120,18 @@ git checkout -b feat/short-description
 1. Commit frequently with conventional commit messages (`feat/`, `fix/`, `chore/`, `docs/`, `refactor/`).
 2. Stage only the files you intentionally changed (e.g., `git add CLAUDE.md` or `git add src/models/*.py`).
 
+## Commit Guardrails
+
+### Only Commit Complete, Working Changes
+- **Never commit mid-change.** A commit is a unit of completed work — all files for that change are written, tested (if applicable), and ready. Partial commits fragment history and make rollbacks dangerous.
+- **Verify before committing.** If the change involves code, run the relevant tests or build step first. Don't commit broken state.
+- **Don't commit to "save progress."** Use stashes (`git stash`) or uncommitted working-tree changes for in-progress work.
+
+### Always Commit to `development`
+- **Commit on feature branches only.** Feature branches fork from `development`; merge back to `development` via PR. Never commit directly to `main`.
+- **Before committing, confirm the branch.** If you're not on a feature branch or `development`, stop and clarify — do not force-push to `main` or amend `main`.
+- **Merge path:** `feat/*` → PR → squash-merge into `development` → PR → `main`. The only way code reaches `main` is through a reviewed PR from `development`.
+
 ### Creating a Pull Request (development → main)
 
 ```bash
@@ -155,3 +167,16 @@ git checkout feat/short-description
 git rebase development   # or merge, whichever you prefer
 # Resolve conflicts if any, then force-push: git push --force-with-lease
 ```
+
+## Task Completion Rule
+
+### Push to `origin development` After Completing All Tasks
+- **Always push after finishing.** Once every task in the current session is complete — all changes committed, tested, and verified — push the code to `origin development`.
+- **Never skip the push.** Completed work stays local until pushed. Unpushed commits are at risk of being lost and invisible to the team.
+- **Push before ending the session.** If multiple tasks were requested and all are done, the final step is always:
+
+```bash
+git push origin development
+```
+
+- **If on a feature branch,** push that feature branch instead, then ensure it's merged into `development` via PR before considering the work complete.
