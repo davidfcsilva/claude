@@ -20,8 +20,8 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: argocddemo-frontend:latest
-          imagePullPolicy: IfNotPresent
+          image: docker.io/nginx:alpine
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
               name: http
