@@ -188,3 +188,6 @@ git push origin development
 - **Update the spec before implementing.** When adding or modifying components (endpoints, resources, config values, services), update the spec first, then implement the Kubernetes manifests and source code to match.
 - **Verify against the spec.** After deploying a change, confirm the live state matches the spec by checking endpoints, resource limits, probe configs, and service topology.
 
+### Application Access
+- The argocddemo frontend LoadBalancer is reachable at **192.168.51.206** (hardcoded on the user's cluster). Use this IP to verify the application is running, test endpoints, or check live behavior after deploying changes.
+
