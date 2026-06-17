@@ -20,22 +20,30 @@ spec:
     spec:
       containers:
         - name: fastapi
-          image: docker.io/python:3.12-slim
+          image: docker.io/library/python:3.12-slim
           imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - pip install --quiet fastapi==0.115.6 uvicorn==0.34.0 && exec uvicorn main:app --host 0.0.0.0 --port 8000
+          workingDir: /app
           ports:
             - containerPort: 8000
               name: http
+          volumeMounts:
+            - name: app-code
+              mountPath: /app/main.py
+              subPath: main.py
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 5
+            initialDelaySeconds: 30
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 45
             periodSeconds: 15
             failureThreshold: 5
           resources:
@@ -45,6 +53,10 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        - name: app-code
+          configMap:
+            name: backend-app-config
 
 ---
 apiVersion: v1
