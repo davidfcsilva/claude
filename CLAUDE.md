@@ -188,6 +188,18 @@ git push origin development
 - **Update the spec before implementing.** When adding or modifying components (endpoints, resources, config values, services), update the spec first, then implement the Kubernetes manifests and source code to match.
 - **Verify against the spec.** After deploying a change, confirm the live state matches the spec by checking endpoints, resource limits, probe configs, and service topology.
 
+### Validate argocddemo Changes Against the Spec
+- **Mandatory validation step.** After committing any change inside `argocddemo/`, validate that the live deployed state matches `argocddemo-spec.yaml` before considering the work complete. This is non-negotiable — a commit is not "done" until verified against the spec.
+- **Validation checklist per change:**
+  - Read `argocddemo-spec.yaml` to identify every field affected by the change.
+  - Wait for ArgoCD to sync the new manifests.
+  - Hit each backend endpoint listed in the spec via `192.168.51.206` and confirm the live response matches the spec's `example_response`.
+  - Verify pod status (`kubectl get pods -n argocddemo`) — all replicas must be Running and Ready per the spec's `replicas` count.
+  - Verify service status (`kubectl get svc frontend -n argocddemo`) — type, port, and LoadBalancer IP match the spec.
+  - If probes were changed, confirm they fire against the correct path/port by checking pod events (`kubectl describe pods <pod> -n argocddemo`).
+- **If the live state does not match the spec,** diagnose and fix the mismatch before pushing. Do not push a commit that breaks spec compliance.
+- **Update the spec first.** If the change intentionally modifies behaviour, update `argocddemo-spec.yaml` to reflect the new desired state, then implement and verify against that updated spec.
+
 ### Application Access
 - The argocddemo frontend LoadBalancer is reachable at **192.168.51.206** (hardcoded on the user's cluster). Use this IP to verify the application is running, test endpoints, or check live behavior after deploying changes.
 
