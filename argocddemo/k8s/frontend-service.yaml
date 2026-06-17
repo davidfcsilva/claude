@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: argocddemo
+  labels:
+    app.kubernetes.io/name: argocddemo
+    app.kubernetes.io/component: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: argocddemo
+    app.kubernetes.io/component: frontend
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
