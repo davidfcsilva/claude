@@ -95,7 +95,7 @@ frontend:
 # Frontend landing page spec
 frontend-landing:
   name: nginx-static
-  description: Static HTML served as the main landing page at / — replaces default nginx welcome page with a dog picture.
+  description: Static HTML served as the main landing page at / — replaces default nginx welcome page with a cat picture.
   key: index.html
 
 ---
