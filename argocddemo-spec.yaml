@@ -95,7 +95,7 @@ frontend:
 # Frontend landing page spec
 frontend-landing:
   name: nginx-static
-  description: Static HTML served as the main landing page at / — replaces default nginx welcome page with a cat picture.
+  description: Static HTML served as the main landing page at / — replaces default nginx welcome page with an inline SVG cat image (no external dependencies).
   key: index.html
   rollout_trigger: Frontend deployment uses checksum/nginx-static annotation on pod template to force rolling update when static content changes. Bump hash to trigger rollout.
 
