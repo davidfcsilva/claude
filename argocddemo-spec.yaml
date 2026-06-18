@@ -22,7 +22,7 @@ features:
           - response_status_is: 200
           - body_contains: "<!DOCTYPE html>"
           - body_contains: "Welcome to ArgoCD Demo"
-          - body_contains: 'alt="A cute elephant face"'
+          - body_contains: 'alt="A cool cat with cat-eye sunglasses"'
 
   - name: Health Check Proxy
     description: Nginx proxies /health to the backend FastAPI health endpoint.
@@ -75,7 +75,7 @@ topology: |
     └── frontend Service -> nginx pods (port 80)
            ├── /api/*   -> ClusterIP backend:8000/api/*
            ├── /health  -> ClusterIP backend:8000/health
-           └── /        -> custom landing page with elephant image
+           └── /        -> custom landing page with cool cat SVG
 
 ---
 # Verification rules — how "then" clauses map to live checks.
