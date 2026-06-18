@@ -1,177 +1,90 @@
-# Application specification for argocddemo
-# Use this file as the single source of truth for spec-driven development.
+# BDD Specification for argocddemo
+# Each "then" clause is a verifiable assertion at the LoadBalancer IP.
+# This file is the single source of truth for spec-driven development.
 
-application:
+metadata:
   name: argocddemo
   description: FastAPI + nginx demo app deployed via ArgoCD to Kubernetes
   version: "0.1.0"
   loadbalancer_ip: "192.168.51.206"
+  namespace: argocddemo
 
 ---
-# Namespace
-namespace:
-  name: argocddemo
+# Features describe observable behaviors of the live system.
+features:
+
+  - name: Landing Page
+    description: The root path serves a custom HTML page with an inline SVG image.
+    scenarios:
+      - given: Frontend pods are running and healthy
+        when: GET http://192.168.51.206/
+        then:
+          - response_status_is: 200
+          - body_contains: "<!DOCTYPE html>"
+          - body_contains: "Welcome to ArgoCD Demo"
+          - body_contains: 'alt="A cute elephant face"'
+
+  - name: Health Check Proxy
+    description: Nginx proxies /health to the backend FastAPI health endpoint.
+    scenarios:
+      - given: Backend pods are running and healthy
+        when: GET http://192.168.51.206/health
+        then:
+          - response_status_is: 200
+          - response_json_equals: { status: "healthy", version: "0.1.0" }
+
+  - name: Items API Proxy
+    description: Nginx proxies /api/items to the backend FastAPI items endpoint.
+    scenarios:
+      - given: Backend pods are running and healthy
+        when: GET http://192.168.51.206/api/items
+        then:
+          - response_status_is: 200
+          - response_json_is_array_with_items:
+            - id: 1
+              name: "Widget A"
+            - id: 2
+              name: "Widget B"
+            - id: 3
+              name: "Widget C"
 
 ---
-# Backend component spec
-backend:
-  name: backend
-  image: docker.io/library/python:3.12-slim
-  replicas: 2
-  port: 8000
-  startup_command: pip install --quiet fastapi==0.115.6 uvicorn==0.34.0 && exec uvicorn main:app --host 0.0.0.0 --port 8000
-  working_dir: /app
-  probes:
-    readiness:
-      path: /health
-      port: http
-      initial_delay_seconds: 30
-      period_seconds: 10
-    liveness:
-      path: /health
-      port: http
-      initial_delay_seconds: 45
-      period_seconds: 15
-      failure_threshold: 5
-  resources:
-    requests: { cpu: "100m", memory: "128Mi" }
-    limits:   { cpu: "500m", memory: "256Mi" }
-  volume_mounts:
-    - name: app-code
-      path: /app/main.py
-      subpath_key: main.py
-      source_configmap: backend-app-config
-  endpoints:
-    - method: GET
-      path: /health
-      response_type: json
-      example_response: { status: "healthy", version: "0.1.0" }
-      description: Health check endpoint used by readiness/liveness probes
-
-    - method: GET
-      path: /api/items
-      response_type: json
-      example_response:
-        [{ id: 1, name: "Widget A" },
-         { id: 2, name: "Widget B" },
-         { id: 3, name: "Widget C" }]
-      description: Return demo list of items
-
-    - method: GET
-      path: /
-      response_type: json
-      example_response: { message: "Hello from the ArgoCD demo backend!" }
-      description: Root greeting endpoint
-
----
-# Frontend component spec
-frontend:
-  name: frontend
-  image: docker.io/nginx:alpine
-  replicas: 2
-  port: 80
-  probes:
-    readiness:
-      path: /health
-      port: http
-      initial_delay_seconds: 10
-      period_seconds: 10
-    liveness:
-      path: /health
-      port: http
-      initial_delay_seconds: 15
-      period_seconds: 15
-      failure_threshold: 5
-  resources:
-    requests: { cpu: "50m", memory: "64Mi" }
-    limits:   { cpu: "200m", memory: "128Mi" }
-  volume_mounts:
-    - name: nginx-config-volume
-      path: /etc/nginx/conf.d/default.conf
-      subpath_key: default.conf
-      source_configmap: nginx-config
-
----
-# Frontend landing page spec
-frontend-landing:
-  name: nginx-static
-  description: Static HTML served as the main landing page at / — replaces default nginx welcome page with an inline SVG elephant image (no external dependencies).
-  key: index.html
-  rollout_trigger: Frontend deployment uses checksum/nginx-static annotation on pod template to force rolling update when static content changes. Bump hash to trigger rollout.
-
----
-# Services spec
-services:
-  - name: backend
-    type: ClusterIP
+# Infrastructure defines the resource guarantees required for features to work.
+infrastructure:
+  backend:
+    replicas: 2
+    image: docker.io/library/python:3.12-slim
     port: 8000
-    target_port: http
-    protocol: TCP
-    selector:
-      app.kubernetes.io/name: argocddemo
-      app.kubernetes.io/component: backend
-
-  - name: frontend
-    type: LoadBalancer
+  frontend:
+    replicas: 2
+    image: docker.io/nginx:alpine
     port: 80
-    target_port: http
-    protocol: TCP
-    loadbalancer_ip: "192.168.51.206"
-    selector:
-      app.kubernetes.io/name: argocddemo
-      app.kubernetes.io/component: frontend
+  services:
+    - name: backend
+      type: ClusterIP
+      port: 8000
+    - name: frontend
+      type: LoadBalancer
+      port: 80
+      loadbalancer_ip: "192.168.51.206"
 
 ---
-# Ingress spec
-ingress:
-  name: argocddemo-ingress
-  host: argocddemo.local
-  backend_service: frontend
-  backend_port: 80
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-
----
-# ArgoCD Application spec
-argocd:
-  name: argocddemo
-  namespace: argocd
-  project: default
-  repo_url: "https://github.com/your-org/argocddemo.git"
-  target_revision: HEAD
-  manifest_path: k8s
-  destination_server: "https://kubernetes.default.svc"
-  destination_namespace: argocddemo
-  sync_policy:
-    automated:
-      prune: true
-      self_heal: true
-    create_namespace: true
-
----
-# ConfigMaps spec
-configmaps:
-  - name: backend-config
-    data:
-        VITE_API_URL: "http://frontend.argocddemo.svc.cluster.local"
-
-  - name: nginx-config
-    description: Nginx reverse proxy config for frontend. Proxies /api/ and /health to backend service, serves static files at /.
-    key: default.conf
-
-  - name: backend-app-config
-    description: Holds the FastAPI application source code as main.py
-    key: main.py
-
-  - name: nginx-static
-    description: Custom landing page (index.html) with dog picture — replaces default nginx welcome page.
-    key: index.html
-
----
-# Network topology
+# Network topology (for human reference — not testable at HTTP layer)
 topology: |
   LoadBalancer (192.168.51.206:80)
     └── frontend Service -> nginx pods (port 80)
            ├── /api/*   -> ClusterIP backend:8000/api/*
            ├── /health  -> ClusterIP backend:8000/health
-           └── /        -> custom landing page with dog image (nginx-static ConfigMap)
+           └── /        -> custom landing page with elephant image
+
+---
+# Verification rules — how "then" clauses map to live checks.
+verification:
+  base_url: "http://192.168.51.206"
+  check_after_sync:
+    - scenario: Landing Page
+      assert_then_clauses: true
+    - scenario: Health Check Proxy
+      assert_then_clauses: true
+    - scenario: Items API Proxy
+      assert_then_clauses: true
