@@ -92,6 +92,13 @@ frontend:
       source_configmap: nginx-config
 
 ---
+# Frontend landing page spec
+frontend-landing:
+  name: nginx-static
+  description: Static HTML served as the main landing page at / — replaces default nginx welcome page with a dog picture.
+  key: index.html
+
+---
 # Services spec
 services:
   - name: backend
@@ -155,11 +162,15 @@ configmaps:
     description: Holds the FastAPI application source code as main.py
     key: main.py
 
+  - name: nginx-static
+    description: Custom landing page (index.html) with dog picture — replaces default nginx welcome page.
+    key: index.html
+
 ---
 # Network topology
 topology: |
   LoadBalancer (192.168.51.206:80)
     └── frontend Service -> nginx pods (port 80)
-           ├── /api/*  -> ClusterIP backend:8000/api/*
-           ├── /health -> ClusterIP backend:8000/health
-           └── /*      -> static files (nginx default root)
+           ├── /api/*   -> ClusterIP backend:8000/api/*
+           ├── /health  -> ClusterIP backend:8000/health
+           └── /        -> custom landing page with dog image (nginx-static ConfigMap)

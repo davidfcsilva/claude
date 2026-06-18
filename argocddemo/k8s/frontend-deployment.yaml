@@ -29,6 +29,9 @@ spec:
             - name: nginx-config-volume
               mountPath: /etc/nginx/conf.d/default.conf
               subPath: default.conf
+            - name: nginx-static-volume
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
           readinessProbe:
             httpGet:
               path: /health
@@ -53,3 +56,6 @@ spec:
         - name: nginx-config-volume
           configMap:
             name: nginx-config
+        - name: nginx-static-volume
+          configMap:
+            name: nginx-static
