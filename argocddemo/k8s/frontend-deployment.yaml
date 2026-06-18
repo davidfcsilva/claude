@@ -15,7 +15,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/nginx-static: "b5e7f9d2"  # bump this to force rollout when static content changes (now inline SVG cat)
+        checksum/nginx-static: "c8a3f1e6"  # bump this to force rollout when static content changes (now inline SVG elephant)
       labels:
         app.kubernetes.io/name: argocddemo
         app.kubernetes.io/component: frontend
