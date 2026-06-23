@@ -15,7 +15,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/nginx-static: "b4d7a2f9"  # bump this to force rollout when static content changes (now cool cat with sunglasses)
+        checksum/nginx-static: "c8e3f1a2"  # bump this to force rollout when static content changes (now rocket launch space theme)
       labels:
         app.kubernetes.io/name: argocddemo
         app.kubernetes.io/component: frontend

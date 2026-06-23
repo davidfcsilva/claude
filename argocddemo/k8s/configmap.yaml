@@ -87,24 +87,163 @@ data:
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>ArgoCD Demo</title>
+        <title>ArgoCD Demo — Mission Control</title>
         <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+
+          @keyframes twinkle {
+            0%, 100% { opacity: 0.25; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.2); }
+          }
+          @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-18px); }
+          }
+          @keyframes flamePulse {
+            0%, 100% { opacity: 1; transform: scaleY(1); }
+            50% { opacity: 0.7; transform: scaleY(1.3); }
+          }
+          @keyframes smokeDrift {
+            0% { opacity: 0; transform: translateY(0) scale(0.6); }
+            40% { opacity: 0.55; }
+            100% { opacity: 0; transform: translateY(60px) scale(1.5); }
+          }
+
           body {
-            margin: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            background-color: #f5f5f5;
-            font-family: Arial, Helvetica, sans-serif;
+            background: linear-gradient(175deg, #0b0d17 0%, #161834 35%, #1e2250 65%, #0f1029 100%);
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            position: relative;
           }
-          h1 { color: #333; margin-bottom: 24px; }
-          img { max-width: 512px; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); }
+
+          .star {
+            position: absolute;
+            background: white;
+            border-radius: 50%;
+            animation: twinkle 2s ease-in-out infinite;
+          }
+
+          .rocket-wrap {
+            animation: float 3.4s ease-in-out infinite;
+            filter: drop-shadow(0 0 40px rgba(78,205,196,0.25));
+            z-index: 1;
+          }
+
+          .flame {
+            transform-box: fill-box;
+            transform-origin: top center;
+            animation: flamePulse 0.3s ease-in-out infinite alternate;
+          }
+          .smoke-puff {
+            opacity: 0;
+            transform-box: fill-box;
+            transform-origin: center;
+            animation: smokeDrift 2.4s ease-out infinite;
+          }
+          .smoke-puff.s2 { animation-delay: 0.6s; }
+          .smoke-puff.s3 { animation-delay: 1.2s; }
+          .smoke-puff.s4 { animation-delay: 1.8s; }
+
+          .title {
+            color: #e0e7ff;
+            font-size: 2.6rem;
+            margin-top: 32px;
+            letter-spacing: 4px;
+            text-shadow: 0 0 24px rgba(99,155,255,0.5), 0 0 60px rgba(99,155,255,0.2);
+            z-index: 1;
+          }
+
+          .console {
+            margin-top: 28px;
+            padding: 20px 32px;
+            background: rgba(7,9,23,0.85);
+            border: 1px solid rgba(78,205,196,0.3);
+            border-radius: 12px;
+            color: #4ecdc4;
+            font-size: 0.92rem;
+            line-height: 1.7;
+            z-index: 1;
+            box-shadow: 0 0 40px rgba(78,205,196,0.08), inset 0 0 20px rgba(78,205,196,0.03);
+            max-width: 540px;
+          }
+          .console .label { color: #7c85c4; }
+          .console .ok    { color: #4ecdc4; font-weight: bold; }
+          .console .val   { color: #e0e7ff; }
+          .cursor-blink {
+            animation: twinkle 1s step-end infinite;
+            color: #4ecdc4;
+          }
         </style>
     </head>
     <body>
-        <h1>Welcome to ArgoCD Demo</h1>
-        <img src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='448' viewBox='0 0 512 448'%3E%3Crect fill='%23fff9c4' width='512' height='448' rx='16'/%3E%3Cellipse cx='256' cy='260' rx='140' ry='135' fill='%23f5deb3'/%3E%3Cpolygon points='136,200 100,90 175,185' fill='%23f5deb3'/%3E%3Cpolygon points='376,200 412,90 337,185' fill='%23f5deb3'/%3E%3Cpolygon points='142,195 108,100 170,185' fill='%23e8cfa6'/%3E%3Cpolygon points='370,195 404,100 342,185' fill='%23e8cfa6'/%3E%3Cpath d='M130 195 L256 220 L382 195 L390 270 Q310 300 256 300 Q202 300 122 270 Z' fill='%231a1a2e'/%3E%3Ccircle cx='190' cy='240' r='18' fill='white'/%3E%3Ccircle cx='322' cy='240' r='18' fill='white'/%3E%3Ccircle cx='196' cy='237' r='8' fill='%23e74c3c'/%3E%3Ccircle cx='328' cy='237' r='8' fill='%23e74c3c'/%3E%3Ccircle cx='198' cy='235' r='3' fill='white'/%3E%3Ccircle cx='330' cy='235' r='3' fill='white'/%3E%3Cellipse cx='190' cy='240' rx='6' ry='10' fill='%231a1a2e'/%3E%3Cellipse cx='322' cy='240' rx='6' ry='10' fill='%231a1a2e'/%3E%3Cpath d='M155 310 Q170 330 200 325 L200 335 Q170 340 150 320Z' fill='%23e8cfa6'/%3E%3Cpath d='M357 310 Q342 330 312 325 L312 335 Q342 340 367 320Z' fill='%23e8cfa6'/%3E%3Cpath d='M220 340 Q256 360 292 340 Q292 365 256 375 Q220 365 220 340Z' fill='%23f0c27a'/%3E%3Cpath d='M175 175 Q180 170 185 175' stroke='%236d4c41' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3Cpath d='M327 175 Q322 170 317 175' stroke='%236d4c41' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3Cellipse cx='256' cy='415' rx='90' ry='15' fill='rgba(0,0,0,0.08)'/%3E%3C/svg%3E" alt="A cool cat with cat-eye sunglasses" />
+
+      <!-- Starfield -->
+      <script>
+        for(let i=0;i<70;i++){
+          const s=document.createElement('div');
+          s.className='star';
+          const size=Math.random()<0.15?3:Math.random()<0.4?2:1;
+          s.style.cssText=`width:${size}px;height:${size}px;top:${Math.random()*100}%;left:${Math.random()*100}%;animation-delay:${Math.random()*3}s;animation-duration:${1+Math.random()*2.5}s`;
+          document.body.appendChild(s);
+        }
+      </script>
+
+      <div class="rocket-wrap">
+        <svg xmlns="http://www.w3.org/2000/svg" width="280" height="420" viewBox="0 0 280 420">
+          <!-- Smoke puffs -->
+          <ellipse class="smoke-puff s1" cx="140" cy="355" rx="22" ry="14" fill="rgba(160,170,190,0.45)"/>
+          <ellipse class="smoke-puff s2" cx="140" cy="355" rx="22" ry="14" fill="rgba(160,170,190,0.45)"/>
+          <ellipse class="smoke-puff s3" cx="140" cy="355" rx="22" ry="14" fill="rgba(160,170,190,0.45)"/>
+          <ellipse class="smoke-puff s4" cx="140" cy="355" rx="22" ry="14" fill="rgba(160,170,190,0.45)"/>
+
+          <!-- Flame -->
+          <path class="flame" d="M118 275 C118 305 126 340 140 352 C154 340 162 305 162 275Z" fill="#ff9f43"/>
+          <path class="flame" d="M125 275 C125 300 131 330 140 340 C149 330 155 300 155 275Z" fill="#feca57"/>
+          <path class="flame" d="M132 275 C132 290 136 312 140 318 C144 312 148 290 148 275Z" fill="#fff4e6"/>
+
+          <!-- Fins -->
+          <path d="M110 245 L60 295 L110 275Z" fill="#e84855"/>
+          <path d="M170 245 L220 295 L170 275Z" fill="#e84855"/>
+
+          <!-- Body -->
+          <path d="M140 28 C168 28 190 52 190 90 L190 270 C190 290 172 300 140 300 C108 300 90 290 90 270 L90 90 C90 52 112 28 140 28Z" fill="#e4e8f1"/>
+          <path d="M140 28 C155 28 172 38 182 62 L182 270 C182 285 165 295 140 295Z" fill="rgba(0,0,0,0.07)"/>
+
+          <!-- Nose -->
+          <path d="M140 28 C168 28 190 52 190 90 L140 90Z" fill="#e84855"/>
+
+          <!-- Stripe -->
+          <rect x="90" y="170" width="100" height="14" fill="#e84855" rx="2"/>
+
+          <!-- Window -->
+          <circle cx="140" cy="130" r="26" fill="#2d3561" stroke="#c4cad7" stroke-width="5"/>
+          <circle cx="140" cy="130" r="20" fill="#5fa8d0" opacity="0.7"/>
+          <ellipse cx="148" cy="122" rx="7" ry="5" fill="rgba(255,255,255,0.5)"/>
+
+          <!-- Panel lines -->
+          <line x1="90" y1="210" x2="190" y2="210" stroke="#c4cad7" stroke-width="1.5" opacity="0.6"/>
+          <line x1="90" y1="250" x2="190" y2="250" stroke="#c4cad7" stroke-width="1.5" opacity="0.6"/>
+
+          <!-- Tiny stars on body -->
+          <circle cx="120" cy="160" r="1.5" fill="#c4cad7" opacity="0.5"/>
+          <circle cx="160" cy="190" r="1.5" fill="#c4cad7" opacity="0.5"/>
+          <circle cx="130" cy="230" r="1.5" fill="#c4cad7" opacity="0.5"/>
+        </svg>
+      </div>
+
+      <h1 class="title">ARGOCD DEMO</h1>
+
+      <div class="console">
+        <div><span class="label">&gt; MISSION STATUS:</span> <span class="ok">ALL SYSTEMS NOMINAL</span></div>
+        <div><span class="label">&gt; DEPLOYMENTS SYNCED:</span>  <span class="val">4 / 4</span></div>
+        <div><span class="label">&gt; CLUSTER:</span>            <span class="val">online</span></div>
+        <div><span class="label">&gt; LAST DEPLOY:</span>         <span class="val">just now 🚀</span></div>
+        <div><span class="label">&gt; </span><span class="cursor-blink">█</span></div>
+      </div>
     </body>
     </html>
