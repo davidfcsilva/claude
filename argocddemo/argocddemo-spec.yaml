@@ -1,0 +1,95 @@
+# BDD Specification for argocddemo
+# Each "then" clause is a verifiable assertion at the LoadBalancer IP.
+# This file is the single source of truth for spec-driven development.
+
+metadata:
+  name: argocddemo
+  description: FastAPI + nginx demo app deployed via ArgoCD to Kubernetes
+  version: "0.1.0"
+  loadbalancer_ip: "192.168.51.206"
+  namespace: argocddemo
+
+---
+# Features describe observable behaviors of the live system.
+features:
+
+  - name: Landing Page
+    description: The root path serves a custom space-themed HTML page with animated inline SVG rocket, procedural starfield, and mission control console.
+    scenarios:
+      - given: Frontend pods are running and healthy
+        when: GET http://192.168.51.206/
+        then:
+          - response_status_is: 200
+          - body_contains: "<!DOCTYPE html>"
+          - body_contains: "ARGOCD DEMO"
+          - body_contains: "Mission Control"
+          - body_contains: "rocket-wrap"
+          - body_contains: "smoke-puff"
+          - body_contains: "@keyframes float"
+          - body_contains: "@keyframes flamePulse"
+          - body_contains: "ALL SYSTEMS NOMINAL"
+
+  - name: Health Check Proxy
+    description: Nginx proxies /health to the backend FastAPI health endpoint.
+    scenarios:
+      - given: Backend pods are running and healthy
+        when: GET http://192.168.51.206/health
+        then:
+          - response_status_is: 200
+          - response_json_equals: { status: "healthy", version: "0.1.0" }
+
+  - name: Items API Proxy
+    description: Nginx proxies /api/items to the backend FastAPI items endpoint.
+    scenarios:
+      - given: Backend pods are running and healthy
+        when: GET http://192.168.51.206/api/items
+        then:
+          - response_status_is: 200
+          - response_json_is_array_with_items:
+            - id: 1
+              name: "Widget A"
+            - id: 2
+              name: "Widget B"
+            - id: 3
+              name: "Widget C"
+
+---
+# Infrastructure defines the resource guarantees required for features to work.
+infrastructure:
+  backend:
+    replicas: 2
+    image: docker.io/library/python:3.12-slim
+    port: 8000
+  frontend:
+    replicas: 2
+    image: docker.io/nginx:alpine
+    port: 80
+  services:
+    - name: backend
+      type: ClusterIP
+      port: 8000
+    - name: frontend
+      type: LoadBalancer
+      port: 80
+      loadbalancer_ip: "192.168.51.206"
+
+---
+# Network topology (for human reference — not testable at HTTP layer)
+topology: |
+  LoadBalancer (192.168.51.206:80)
+    └── frontend Service -> nginx pods (port 80)
+           ├── /api/*   -> ClusterIP backend:8000/api/*
+           ├── /health  -> ClusterIP backend:8000/health
+           └── /        -> space-themed landing page with animated rocket SVG
+
+---
+# Verification rules — how "then" clauses map to live checks.
+verification:
+  base_url: "http://192.168.51.206"
+  check_after_sync:
+    - scenario: Landing Page
+      assert_then_clauses: true
+    - scenario: Health Check Proxy
+      assert_then_clauses: true
+    - scenario: Items API Proxy
+      assert_then_clauses: true
