@@ -49,6 +49,17 @@ features:
               name: "Widget C"
             - id: 4
               name: "Widget D"
+            - id: 5
+              name: "Widget E"
+
+  - name: Hot-Reload Endpoint
+    description: POST /reload re-reads the app code from its ConfigMap volume mount and updates dynamic state without a pod restart.
+    scenarios:
+      - given: Backend pods are running and healthy
+        when: POST http://192.168.51.206/reload
+        then:
+          - response_status_is: 200
+          - response_json_equals: { ok: true }
 
 ---
 # Infrastructure defines the resource guarantees required for features to work.
@@ -89,4 +100,6 @@ verification:
     - scenario: Health Check Proxy
       assert_then_clauses: true
     - scenario: Items API Proxy
+      assert_then_clauses: true
+    - scenario: Hot-Reload Endpoint
       assert_then_clauses: true
