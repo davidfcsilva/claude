@@ -14,7 +14,7 @@ metadata:
 features:
 
   - name: Landing Page
-    description: The root path serves a custom space-themed HTML page with animated inline SVG rocket, procedural starfield, and mission control console.
+    description: The root path serves a custom space-themed HTML page with an inline Saturn V-style multi-stage rocket SVG.
     scenarios:
       - given: Frontend pods are running and healthy
         when: GET http://192.168.51.206/
@@ -52,6 +52,10 @@ features:
               name: "Widget B"
             - id: 3
               name: "Widget C"
+            - id: 4
+              name: "Widget D"
+            - id: 5
+              name: "Widget E"
 
 ---
 # Infrastructure defines the resource guarantees required for features to work.
@@ -80,7 +84,7 @@ topology: |
     └── frontend Service -> nginx pods (port 80)
            ├── /api/*   -> ClusterIP backend:8000/api/*
            ├── /health  -> ClusterIP backend:8000/health
-           └── /        -> space-themed landing page with animated rocket SVG
+           └── /        -> space-themed landing page with Saturn V-style multi-stage rocket SVG
 
 ---
 # Verification rules — how "then" clauses map to live checks.
