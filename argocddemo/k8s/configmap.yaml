@@ -36,6 +36,11 @@ data:
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
         }
+
+        location /reload {
+            proxy_pass http://backend.argocddemo.svc.cluster.local:8000/reload;
+            proxy_set_header Host $host;
+        }
     }
 
 ---
@@ -48,9 +53,14 @@ data:
   main.py: |
     """Demo backend using FastAPI."""
 
+    import importlib
+    import os
+
     from fastapi import FastAPI
 
     app = FastAPI(title="ArgoCD Demo Backend", version="0.1.0")
+
+    _APP_MODULE_PATH = "/app/main.py"
 
 
     @app.get("/health")
@@ -59,21 +69,49 @@ data:
         return {"status": "healthy", "version": "0.1.0"}
 
 
+    _ITEMS = [
+        {"id": 1, "name": "Widget A"},
+        {"id": 2, "name": "Widget B"},
+        {"id": 3, "name": "Widget C"},
+        {"id": 4, "name": "Widget D"},
+        {"id": 5, "name": "Widget E"},
+    ]
+
+
     @app.get("/api/items")
     async def get_items() -> list[dict]:
         """Return a demo list of items."""
-        return [
-            {"id": 1, "name": "Widget A"},
-            {"id": 2, "name": "Widget B"},
-            {"id": 3, "name": "Widget C"},
-            {"id": 4, "name": "Widget D"},
-        ]
+        return _ITEMS
 
 
     @app.get("/")
     async def root() -> dict:
         """Root endpoint — simple greeting."""
         return {"message": "Hello from the ArgoCD demo backend!"}
+
+    @app.post("/reload")
+    async def reload_from_disk() -> dict:
+        """Hot-reload app state from its ConfigMap volume mount.
+
+        Reads /app/main.py from disk (mounted by ArgoCD), exec's the
+        file against this module's globals, and updates any dynamic
+        variables (e.g. _ITEMS) without a pod restart.
+        """
+        path = _APP_MODULE_PATH
+        if not os.path.isfile(path):
+            return {"ok": False, "error": f"file not found: {path}"}
+
+        with open(path, "r") as f:
+            source = f.read()
+
+        ctx = {"_ITEMS": _ITEMS, "app": app, "__name__": "__main__", "__builtins__": __builtins__}
+        exec(source, ctx)  # noqa: S102  # safe — we control the mounted file
+
+        if "_ITEMS" in ctx:
+            _ITEMS.clear()
+            _ITEMS.extend(ctx["_ITEMS"])
+
+        return {"ok": True, "path": path, "loaded_items": len(_ITEMS)}
 
 ---
 apiVersion: v1
