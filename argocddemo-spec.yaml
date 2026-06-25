@@ -47,6 +47,8 @@ features:
               name: "Widget B"
             - id: 3
               name: "Widget C"
+            - id: 4
+              name: "Widget D"
 
 ---
 # Infrastructure defines the resource guarantees required for features to work.
