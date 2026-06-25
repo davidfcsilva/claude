@@ -14,15 +14,20 @@ metadata:
 features:
 
   - name: Landing Page
-    description: The root path serves a custom HTML page with an inline SVG image.
+    description: The root path serves a custom HTML page with an inline Saturn V-style multi-stage rocket SVG.
     scenarios:
       - given: Frontend pods are running and healthy
         when: GET http://192.168.51.206/
         then:
           - response_status_is: 200
           - body_contains: "<!DOCTYPE html>"
-          - body_contains: "Welcome to ArgoCD Demo"
-          - body_contains: 'alt="A cool cat with cat-eye sunglasses"'
+          - body_contains: "ARGOCD DEMO"
+          - body_contains: "Mission Control"
+          - body_contains: "rocket-wrap"
+          - body_contains: "smoke-puff"
+          - body_contains: "@keyframes float"
+          - body_contains: "@keyframes flamePulse"
+          - body_contains: "ALL SYSTEMS NOMINAL"
 
   - name: Health Check Proxy
     description: Nginx proxies /health to the backend FastAPI health endpoint.
@@ -88,7 +93,7 @@ topology: |
     └── frontend Service -> nginx pods (port 80)
            ├── /api/*   -> ClusterIP backend:8000/api/*
            ├── /health  -> ClusterIP backend:8000/health
-           └── /        -> custom landing page with cool cat SVG
+           └── /        -> space-themed landing page with Saturn V-style multi-stage rocket SVG
 
 ---
 # Verification rules — how "then" clauses map to live checks.
