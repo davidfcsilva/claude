@@ -15,7 +15,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/nginx-static: "d9f4a6b3"  # bump this to force rollout when static content changes (now saturn v multi-stage rocket)
+        checksum/nginx-static: "e1a5c7d2"  # bump this to force rollout when static content changes (added Claude Logo)
       labels:
         app.kubernetes.io/name: argocddemo
         app.kubernetes.io/component: frontend

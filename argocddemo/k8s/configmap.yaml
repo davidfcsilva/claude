@@ -188,10 +188,22 @@ data:
           .smoke-puff.s3 { animation-delay: 1.2s; }
           .smoke-puff.s4 { animation-delay: 1.8s; }
 
+          .claude-logo {
+            margin-top: 28px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #7c85c4;
+            font-size: 0.75rem;
+            letter-spacing: 2px;
+            z-index: 1;
+          }
+          .claude-logo svg { flex-shrink: 0; }
+
           .title {
             color: #e0e7ff;
             font-size: 2.6rem;
-            margin-top: 32px;
+            margin-top: 8px;
             letter-spacing: 4px;
             text-shadow: 0 0 24px rgba(99,155,255,0.5), 0 0 60px rgba(99,155,255,0.2);
             z-index: 1;
@@ -313,6 +325,14 @@ data:
 
           <!-- Engine compartment details -->
           <rect x="108" y="340" width="64" height="10" rx="2" fill="#8c9aaa"/>
+        </svg>
+      </div>
+
+      <!-- Claude Logo -->
+      <div class="claude-logo" aria-label="Claude Logo">
+        <svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true">
+          <circle cx="16" cy="16" r="14" fill="#7c3aed" opacity="0.7"/>
+          <text x="16" y="22" text-anchor="middle" fill="#e0e7ff" font-size="18" font-weight="bold" font-family="system-ui">C</text>
         </svg>
       </div>
 
