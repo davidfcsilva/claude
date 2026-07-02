@@ -100,6 +100,22 @@ export TORCH_HOME=~/.cache/torch
 
 Experiments are logged to `./mlruns/` with tracking URI configured in `config/default_config.yaml`.
 
+## Operational Skills
+
+### k8s-troubleshoot (`/k8s`)
+
+When the argocddemo app is broken or needs debugging, use the `/k8s` slash-command. It wraps kubectl with argocddemo defaults and auto-discovers pods so you don't need to type namespace or pod names manually.
+
+```
+/k8s logs                      → tail 100 lines from the first matching pod
+/k8s logs -n 500 --follow      → follow last 500 lines in real-time
+/k8s describe backend-f4abc    → full pod spec + recent events for a specific pod
+/k8s exec curl http://localhost:8000/health   → run curl inside the auto-discovered pod
+/k8s port-forward backend 8080:8000            → expose service on localhost:8080
+```
+
+Source: `bin/k8s-troubleshoot` (executable bash script, zero external interpreter dependencies). Skill definition: `.claude/skills/k8s-troubleshoot/SKILL.md`.
+
 ## Branching & Merge Workflow
 
 ### Branch Model
