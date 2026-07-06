@@ -4,8 +4,8 @@
 
 metadata:
   name: argocddemo
-  description: FastAPI + nginx demo app deployed via ArgoCD to Kubernetes
-  version: "0.1.0"
+  description: FastAPI + nginx demo app deployed via ArgoCD to Kubernetes with HPA, PDB, anti-affinity, and resource governance
+  version: "0.2.0"
   loadbalancer_ip: "192.168.51.206"
   namespace: argocddemo
 
@@ -74,10 +74,19 @@ infrastructure:
     replicas: 2
     image: docker.io/library/python:3.12-slim
     port: 8000
+    hpa:
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilization: 70
+      targetMemoryUtilization: 80
   frontend:
     replicas: 2
-    image: docker.io/nginx:alpine
+    image: docker.io/nginx:1.27-alpine
     port: 80
+    hpa:
+      minReplicas: 2
+      maxReplicas: 8
+      targetCPUUtilization: 60
   services:
     - name: backend
       type: ClusterIP
@@ -86,15 +95,52 @@ infrastructure:
       type: LoadBalancer
       port: 80
       loadbalancer_ip: "192.168.51.206"
+  podDisruptionBudgets:
+    - name: backend-pdb
+      minAvailable: 1
+    - name: frontend-pdb
+      minAvailable: 1
+  resourceQuota:
+    requestsCPU: "2"
+    requestsMemory: 2Gi
+    limitsCPU: "4"
+    limitsMemory: 4Gi
+    maxPods: 20
+
 
 ---
 # Network topology (for human reference — not testable at HTTP layer)
 topology: |
   LoadBalancer (192.168.51.206:80)
-    └── frontend Service -> nginx pods (port 80)
-           ├── /api/*   -> ClusterIP backend:8000/api/*
-           ├── /health  -> ClusterIP backend:8000/health
+    └── frontend Service -> nginx pods (port 80) [HPA: 2-8 replicas]
+           ├── /api/*   -> ClusterIP backend:8000/api/* (keepalive pool)
+           ├── /health  -> ClusterIP backend:8000/health (keepalive pool)
+           ├── /reload  -> ClusterIP backend:8000/reload (keepalive pool)
            └── /        -> space-themed landing page with Saturn V-style multi-stage rocket SVG
+  ─────────────────────────────────────────────
+  Scalability Features (v0.2.0):
+  - HPA on backend (2-10 replicas, CPU 70%, mem 80%)
+  - HPA on frontend (2-8 replicas, CPU 60%)
+  - PDB: minAvailable=1 for both components
+  - Pod anti-affinity (preferred) spreads pods across nodes
+  - RollingUpdate strategy (maxSurge=1, maxUnavailable=0)
+  - Gzip compression + connection keepalive in nginx
+  - Namespace ResourceQuota + LimitRange governance
+  - Startup probes on backend for slow pip install
+changelog:
+  - version: "0.2.0"
+    changes:
+      - fix: backend volume mount path (BLOCKER-1)
+      - fix: frontend health probes point to / instead of /health
+      - fix: pin nginx image to 1.27-alpine
+      - feat: HorizontalPodAutoscaler for backend and frontend
+      - feat: PodDisruptionBudget for both components
+      - feat: pod anti-affinity rules for HA spread
+      - feat: rolling update strategy with zero downtime
+      - feat: nginx gzip, keepalive upstream, caching headers, security headers
+      - feat: startup probes on backend for slow pip install
+      - feat: namespace resource quotas and limit ranges
+      - refactor: remove unused ingress.yaml and backend-config ConfigMap
 
 ---
 # Verification rules — how "then" clauses map to live checks.

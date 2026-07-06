@@ -12,21 +12,43 @@ spec:
     matchLabels:
       app.kubernetes.io/name: argocddemo
       app.kubernetes.io/component: frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       annotations:
-        checksum/nginx-static: "e1a5c7d2"  # bump this to force rollout when static content changes (added Claude Logo)
+        checksum/nginx-config: "a3f8b9c1"  # bump when nginx config changes
+        checksum/nginx-static: "f2d7e4a6"  # bump when static content changes
       labels:
         app.kubernetes.io/name: argocddemo
         app.kubernetes.io/component: frontend
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: [argocddemo]
+                    - key: app.kubernetes.io/component
+                      operator: In
+                      values: [frontend]
+                topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
       containers:
         - name: nginx
-          image: docker.io/nginx:alpine
-          imagePullPolicy: Always
+          image: docker.io/nginx:1.27-alpine
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
               name: http
+              protocol: TCP
           volumeMounts:
             - name: nginx-config-volume
               mountPath: /etc/nginx/conf.d/default.conf
@@ -36,15 +58,15 @@ spec:
               subPath: index.html
           readinessProbe:
             httpGet:
-              path: /health
+              path: /
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /health
+              path: /
               port: http
-            initialDelaySeconds: 15
+            initialDelaySeconds: 10
             periodSeconds: 15
             failureThreshold: 5
           resources:

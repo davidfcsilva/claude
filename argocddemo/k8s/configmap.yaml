@@ -1,44 +1,80 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: backend-config
-  namespace: argocddemo
-data:
-  VITE_API_URL: "http://frontend.argocddemo.svc.cluster.local"
-
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
   name: nginx-config
   namespace: argocddemo
 data:
   default.conf: |
+    # Upstream with keepalive connections to backend
+    upstream backend_upstream {
+        server backend.argocddemo.svc.cluster.local:8000;
+        keepalive 32;
+        keepalive_requests 100;
+        keepalive_timeout 60;
+    }
+
     server {
-        listen 80;
+        listen 80 default_server;
         server_name _;
         root /usr/share/nginx/html;
 
-        location / {
+        # Gzip compression
+        gzip on;
+        gzip_vary on;
+        gzip_proxied any;
+        gzip_comp_level 6;
+        gzip_min_length 256;
+        gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+
+        # Static content with aggressive caching
+        location ~* \.(html)$ {
             try_files $uri $uri/ /index.html;
+            expires -1;
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
         }
 
+        # API proxy with connection keepalive
         location /api/ {
-            proxy_pass http://backend.argocddemo.svc.cluster.local:8000/api/;
+            proxy_pass http://backend_upstream/api/;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+
+            # Proxy timeouts
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 10s;
+            proxy_read_timeout 30s;
+
+            # Buffering for smaller responses
+            proxy_buffer_size 4k;
+            proxy_buffers 8 4k;
         }
 
+        # Health check with keepalive
         location /health {
-            proxy_pass http://backend.argocddemo.svc.cluster.local:8000/health;
+            proxy_pass http://backend_upstream/health;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
         }
 
+        # Hot-reload endpoint
         location /reload {
-            proxy_pass http://backend.argocddemo.svc.cluster.local:8000/reload;
+            proxy_pass http://backend_upstream/reload;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+
             proxy_set_header Host $host;
         }
     }
@@ -53,10 +89,10 @@ data:
   main.py: |
     """Demo backend using FastAPI."""
 
-    import importlib
     import os
 
-    from fastapi import FastAPI
+    from fastapi import FastAPI, Response
+    from fastapi.responses import JSONResponse
 
     app = FastAPI(title="ArgoCD Demo Backend", version="0.1.0")
 
@@ -79,8 +115,9 @@ data:
 
 
     @app.get("/api/items")
-    async def get_items() -> list[dict]:
+    async def get_items(response: Response) -> list[dict]:
         """Return a demo list of items."""
+        response.headers["Cache-Control"] = "max-age=60, stale-while-revalidate=30"
         return _ITEMS
 
 

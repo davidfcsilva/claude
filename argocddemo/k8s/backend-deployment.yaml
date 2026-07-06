@@ -12,40 +12,73 @@ spec:
     matchLabels:
       app.kubernetes.io/name: argocddemo
       app.kubernetes.io/component: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app.kubernetes.io/name: argocddemo
         app.kubernetes.io/component: backend
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: [argocddemo]
+                    - key: app.kubernetes.io/component
+                      operator: In
+                      values: [backend]
+                topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
       containers:
         - name: fastapi
           image: docker.io/library/python:3.12-slim
           imagePullPolicy: Always
           command: ["/bin/sh", "-c"]
           args:
-            - pip install --quiet fastapi==0.115.6 uvicorn==0.34.0 && exec uvicorn main:app --host 0.0.0.0 --port 8000
+            - >-
+              pip install --quiet --no-cache-dir
+              fastapi==0.115.6 uvicorn[standard]==0.34.0
+              && exec uvicorn main:app --host 0.0.0.0 --port 8000
           workingDir: /app
           ports:
             - containerPort: 8000
               name: http
+              protocol: TCP
           volumeMounts:
             - name: app-code
-              mountPath: /app/main.py
-              subPath: main.py
+              mountPath: /app
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 45
-            periodSeconds: 15
-            failureThreshold: 5
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
           resources:
             requests:
               cpu: 100m
@@ -69,6 +102,7 @@ metadata:
     app.kubernetes.io/component: backend
 spec:
   type: ClusterIP
+  internalTrafficPolicy: Cluster
   selector:
     app.kubernetes.io/name: argocddemo
     app.kubernetes.io/component: backend
