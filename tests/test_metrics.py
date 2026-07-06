@@ -8,21 +8,27 @@ class TestAccuracy:
     """Test cases for Accuracy metric."""
 
     def test_instantiation(self):
-        """Test metric instantiation."""
         acc = Accuracy(num_classes=10)
         assert acc.num_classes == 10
 
-    def test_update(self):
-        """Test updating accuracy."""
+    def test_update_all_correct(self):
         acc = Accuracy(num_classes=2)
         acc.update([0, 1, 0], [0, 1, 0])
         assert acc.get_value() == 1.0
 
+    def test_update_partial(self):
+        acc = Accuracy(num_classes=3)
+        acc.update([0, 1, 2, 0], [0, 0, 0, 0])
+        assert abs(acc.get_value() - 0.5) < 1e-6
+
     def test_reset(self):
-        """Test resetting accuracy."""
         acc = Accuracy(num_classes=2)
         acc.update([0], [1])
         acc.reset()
+        assert acc.get_value() == 0.0
+
+    def test_empty_get_value(self):
+        acc = Accuracy()
         assert acc.get_value() == 0.0
 
 
@@ -30,20 +36,28 @@ class TestLoss:
     """Test cases for Loss metric."""
 
     def test_instantiation(self):
-        """Test metric instantiation."""
         loss = Loss()
-        assert loss.losses == []
+        assert loss.get_value() == 0.0
 
-    def test_update(self):
-        """Test updating loss."""
+    def test_update_single(self):
+        loss = Loss()
+        loss.update(0.5)
+        assert abs(loss.get_value() - 0.5) < 1e-6
+
+    def test_update_multiple(self):
         loss = Loss()
         loss.update(0.5)
         loss.update(0.3)
         assert abs(loss.get_value() - 0.4) < 1e-6
 
     def test_reset(self):
-        """Test resetting loss."""
         loss = Loss()
         loss.update(0.5)
         loss.reset()
         assert loss.get_value() == 0.0
+
+    def test_steps_counter(self):
+        loss = Loss()
+        for i in range(5):
+            loss.update(float(i))
+        assert loss.steps == 5

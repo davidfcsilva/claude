@@ -1,6 +1,6 @@
-# ML Project Makefile
+# ML Project Makefile — cross-platform (Windows / Unix)
 
-.PHONY: install test train clean help
+.PHONY: install test bdd-test train clean help
 
 help:
 	@echo "Available commands:"
@@ -24,7 +24,4 @@ train:
 	python src/training/train.py --config config/default_config.yaml
 
 clean:
-	find . -type d -name "__pycache__" -exec rm -r {} +
-	find . -type f -name "*.pyc" -delete
-	find . -type d -name ".pytest_cache" -exec rm -r {} +
-	find . -type d -name ".cache" -exec rm -r {} +
+	python -c "import shutil, glob, os; [shutil.rmtree(d, ignore_errors=True) for d in glob.glob('**/__pycache__', recursive=True) + glob.glob('**/.pytest_cache', recursive=True) + glob.glob('**/.cache', recursive=True)]; [os.remove(f) for f in glob.glob('**/*.pyc', recursive=True)]"

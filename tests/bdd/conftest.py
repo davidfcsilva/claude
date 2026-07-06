@@ -1,10 +1,10 @@
 """Pytest fixtures for BDD tests."""
 
 import pytest
-from src.models.base_model import BaseModel
-from src.data.base_dataset import BaseDataset
+from src.models.mlp_model import MLPModel
+from src.data.base_dataset import TensorDataset
 from src.evaluation.metrics import Accuracy, Loss
-from src.training.base_trainer import BaseTrainer
+from src.training.trainer import Trainer
 
 
 @pytest.fixture
@@ -21,22 +21,16 @@ def dummy_config():
 @pytest.fixture
 def dummy_model():
     """Return a dummy model instance for testing."""
-    return BaseModel(config={"model_type": "dummy", "hidden_size": 128})
+    return MLPModel(input_dim=64, hidden_dims=[32], num_classes=2)
 
 
 @pytest.fixture
 def dummy_dataset():
     """Return a dummy dataset instance for testing."""
-    return BaseDataset(config={"data_path": "dummy_path", "transform": None})
-
-
-@pytest.fixture
-def dummy_trainer(dummy_model, dummy_dataset):
-    """Return a dummy trainer instance for testing."""
-    return BaseTrainer(
-        model=dummy_model,
-        dataset=dummy_dataset,
-        config={"device": "cpu"}
+    import torch
+    return TensorDataset(
+        data=torch.randn(100, 10),
+        labels=torch.randint(0, 2, (100,)),
     )
 
 

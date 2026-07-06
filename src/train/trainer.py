@@ -85,6 +85,7 @@ class Trainer:
         self.epoch = 0
         self.global_step = 0
         self.total_steps = 0
+        self.tracker = MetricTracker()
 
     def get_name(self) -> str:
         """Get trainer name for logging."""
@@ -149,9 +150,10 @@ class Trainer:
         """
         metrics = {}
 
-        # Calculate loss
+        # Extract labels before model forward pass so callbacks still see them
+        label = batch.get('y', batch.get('target')) if isinstance(batch, dict) else None
         outputs = self.model(batch)
-        loss = self.criterion(outputs, batch.pop('y', batch.pop('target', None)))
+        loss = self.criterion(outputs, label)
 
         # Backward pass and optimizer step
         loss.backward()
@@ -271,8 +273,8 @@ class Trainer:
             # Call epoch end callback with validation metrics
             all_metrics = {**epoch_metrics, **val_metrics}
             for cb in self.callbacks:
-                if hasattr(cb, 'on_training_epoch_end'):
-                    cb.on_training_epoch_end(epoch, all_metrics)
+                if hasattr(cb, 'on_epoch_end'):
+                    cb.on_epoch_end(epoch, all_metrics)
 
             if verbose:
                 self._print_epoch_metrics(epoch, epoch_metrics, val_metrics)
@@ -299,11 +301,10 @@ class Trainer:
 
         with torch.no_grad():
             for batch in self._get_batches(self.val_loader, shuffle=False):
-                batch.pop('y', None)
-                batch.pop('target', None)
+                label = batch.get('y', batch.get('target')) if isinstance(batch, dict) else None
 
                 outputs = self.model(batch)
-                loss = self.criterion(outputs, batch.pop('y', batch.pop('target', None)))
+                loss = self.criterion(outputs, label)
 
                 val_metrics['loss'] = loss.item()
 

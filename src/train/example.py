@@ -5,16 +5,9 @@ import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.optim import AdamW
 
-from train import (
-    Trainer,
-    EarlyStopping,
-    ModelCheckpoint,
-    ProgressLogger,
-    MetricTracker,
-    accuracy,
-    get_default_loader,
-    get_tensor_dataset,
-)
+from .trainer import Trainer
+from .metrics import AccuracyMetric, LossMetric
+from .callbacks import EarlyStopping, ModelCheckpoint, ProgressLogger
 
 
 class SimpleModel(nn.Module):
@@ -41,48 +34,36 @@ def main():
     y = torch.randint(0, 2, (1000,))
 
     # Create dataset and dataloader
-    dataset = TensorDataset(x, y)
-    dataloader = get_default_loader(dataset, batch_size=32, shuffle=True)
+    train_dataset = TensorDataset(x, y)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+
+    test_x = torch.randn(100, 100)
+    test_y = torch.randint(0, 2, (100,))
+    test_dataset = TensorDataset(test_x, test_y)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
     # Create model
     model = SimpleModel(input_size=100, hidden_size=64, num_classes=2)
 
-    # Create metric tracker
-    tracker = MetricTracker()
-    tracker.add_metric('accuracy', AccuracyMetric())
-    tracker.add_metric('loss', LossMetric())
-
-    # Create trainer
-    trainer = Trainer(
-        model=model,
-        optimizer=AdamW(model.parameters(), lr=0.001),
-        criterion=torch.nn.CrossEntropyLoss(),
-        train_dataloader=dataloader,
-        metrics=tracker,
-    )
-
-    # Create callbacks
-    early_stopping = EarlyStopping(patience=5, monitor='accuracy')
-    checkpoint = ModelCheckpoint(monitor='accuracy', save_best=True, save_last=True)
+    # Create trainer with callbacks
+    early_stopping = EarlyStopping(patience=5, mode='max')
+    checkpoint = ModelCheckpoint(save_path='./checkpoints', monitor='accuracy', mode='max')
     progress_logger = ProgressLogger()
 
-    # Train
-    trainer.fit(
-        epochs=10,
+    trainer = Trainer(
+        model=model,
+        train_loader=train_loader,
+        val_loader=test_loader,
+        criterion=torch.nn.CrossEntropyLoss(),
         callbacks=[early_stopping, checkpoint, progress_logger],
     )
 
-    # Evaluate
-    test_x = torch.randn(100, 100)
-    test_y = torch.randint(0, 2, (100,))
-    test_dataset = TensorDataset(test_x, test_y)
-    test_loader = get_default_loader(test_dataset, batch_size=32, shuffle=False)
+    # Train
+    history = trainer.train(epochs=10)
 
-    predictions = model(test_loader.dataset.x).detach().cpu()
-    labels = test_loader.dataset.y
-
-    current_metrics = tracker.compute(labels, predictions)
-    print(f"Test accuracy: {current_metrics['accuracy']:.4f}")
+    print(f"Training complete!")
+    print(f"Final training loss: {history['loss'][-1]:.4f}")
+    print(f"Final accuracy: {history['accuracy'][-1]:.4f}")
 
 
 if __name__ == '__main__':

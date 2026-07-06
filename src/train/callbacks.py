@@ -1,5 +1,6 @@
 """Training callbacks."""
 
+import logging
 import os
 import time
 import json
@@ -8,7 +9,8 @@ from typing import Callable, Optional, List, Dict, Any
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-from tensorboardX import SummaryWriter as TBXWriter
+
+logger = logging.getLogger(__name__)
 
 
 class Callback:
@@ -26,7 +28,7 @@ class Callback:
         Args:
             trainer: Trainer instance
         """
-        pass
+        self.trainer = trainer
 
     def on_epoch_start(self, epoch):
         """
@@ -69,25 +71,6 @@ class Callback:
 
     def on_training_start(self):
         """Called at the start of training."""
-        pass
-
-    def on_training_epoch_start(self, epoch):
-        """
-        Called at the start of each epoch.
-
-        Args:
-            epoch: Current epoch number
-        """
-        pass
-
-    def on_training_epoch_end(self, epoch, metrics):
-        """
-        Called at the end of each epoch.
-
-        Args:
-            epoch: Current epoch number
-            metrics: Epoch metrics
-        """
         pass
 
     def on_validation_start(self):
@@ -161,14 +144,8 @@ class EarlyStopping(Callback):
         else:
             self.best = float('-inf')
 
-    def on_training_epoch_end(self, epoch, metrics: Dict[str, float]):
-        """
-        Called at the end of each epoch.
-
-        Args:
-            epoch: Current epoch number
-            metrics: Epoch metrics
-        """
+    def on_epoch_end(self, epoch, metrics: Dict[str, float]):
+        """Called at the end of each epoch."""
         if not self.enabled:
             return
 
@@ -192,10 +169,12 @@ class EarlyStopping(Callback):
         if self.counter >= self.patience:
             self.early_stop = True
 
-    def on_training_end(self, metrics: Dict[str, float]):
+    def on_training_end(self, history: Dict[str, list]):
         """Called at the end of training."""
         if self.early_stop:
-            raise RuntimeError(f"Early stopping triggered. Best {self.mode}: {self.best}")
+            last_epoch = history.get('epoch', [None])[-1] if isinstance(history.get('epoch'), list) else '?'
+            logger.warning("Early stopping triggered at epoch %s. Best value: %s",
+                           last_epoch, self.best)
 
     def state_dict(self):
         """Get state dict."""
@@ -215,39 +194,39 @@ class EarlyStopping(Callback):
                 setattr(self, k, v)
 
 
-class Checkpoint(Callback):
-    """Checkpoint saving callback."""
+class ModelCheckpoint(Callback):
+    """Model checkpoint with automatic best model tracking."""
 
     def __init__(
         self,
         save_path: str = None,
-        save_best_only: bool = True,
-        save_top_k: int = -1,
-        filename: str = None,
+        save_top_k: int = 3,
+        monitor: str = 'val_loss',
         mode: str = 'min',
+        filename: str = None,
         every_n_epochs: int = -1,
     ):
         """
-        Initialize checkpoint callback.
+        Initialize model checkpoint.
 
         Args:
             save_path: Path to save checkpoints
-            save_best_only: Only save best model
-            save_top_k: Number of best models to save (-1: all)
-            filename: Checkpoint filename format
+            save_top_k: Number of best models to save
+            monitor: Metric to monitor
             mode: 'min' or 'max'
+            filename: Checkpoint filename format
             every_n_epochs: Save every n epochs (-1: only when best)
         """
         super().__init__()
         self.save_path = save_path
-        self.save_best_only = save_best_only
         self.save_top_k = save_top_k
-        self.filename = filename or 'epoch_{epoch}.pt'
+        self.monitor = monitor
         self.mode = mode
+        self.filename = filename or 'epoch_{epoch}'
         self.every_n_epochs = every_n_epochs
 
         self.best: Optional[float] = None
-        self.best_model_count = 0
+        self.epochs_since_best = 0
 
     def setup(self, trainer):
         """Setup callback."""
@@ -258,89 +237,59 @@ class Checkpoint(Callback):
             self.best = float('-inf')
 
     def on_validation_end(self, metrics: Dict[str, float]):
-        """
-        Called at the end of validation.
-
-        Args:
-            metrics: Validation metrics
-        """
+        """Called at the end of validation."""
         if not self.enabled:
             return
 
-        if self.every_n_epochs > 0 and metrics.get('epoch') % self.every_n_epochs != 0:
+        if self.every_n_epochs > 0 and metrics.get('epoch', 0) % self.every_n_epochs != 0:
             return
 
-        val_metric = metrics.get('val_loss', metrics.get('val_accuracy', metrics.get('eval/metrics', None)))
+        val_metric = metrics.get(self.monitor, metrics.get('val_loss', None))
         if val_metric is None:
             return
 
         if self.mode == 'min':
-            should_save = val_metric < self.best
+            if val_metric < self.best:
+                self.best = val_metric
+                self.epochs_since_best = 0
+                self._save_checkpoint(metrics)
+            else:
+                self.epochs_since_best += 1
         else:
-            should_save = val_metric > self.best
+            if val_metric > self.best:
+                self.best = val_metric
+                self.epochs_since_best = 0
+                self._save_checkpoint(metrics)
+            else:
+                self.epochs_since_best += 1
 
-        if should_save:
-            self.best = val_metric
-            self.best_model_count += 1
-
-            if self.save_best_only:
-                self._save_checkpoint(metrics, f'best_{self.filename}')
-            elif self.save_top_k > 0:
-                if len([m for m in self._get_all_checkpoints() if 'best_' not in m or m == 'best_']) < self.save_top_k:
-                    self._save_checkpoint(metrics, f'best_{self.filename}')
-        else:
-            if self.save_top_k > 0:
-                self._save_checkpoint(metrics, f'epoch_{metrics.get("epoch")}.pt')
-
-    def _save_checkpoint(self, metrics: Dict[str, float], filename: str):
+    def _save_checkpoint(self, metrics: Dict[str, float]):
         """Save checkpoint."""
         if self.save_path is None:
             return
 
-        if not os.path.exists(self.save_path):
-            os.makedirs(self.save_path)
-
-        save_path = os.path.join(self.save_path, filename.format(epoch=metrics.get('epoch', 0)))
+        os.makedirs(self.save_path, exist_ok=True)
+        save_path = os.path.join(self.save_path, f'{self.filename.format(epoch=metrics.get("epoch", 0))}.pt')
         torch.save(self.trainer.model.state_dict(), save_path)
 
-        # Save metrics
-        checkpoint_path = os.path.join(self.save_path, filename.replace('.pt', '.json'))
-        checkpoint_data = {
-            'metrics': metrics,
-            'best_model_count': self.best_model_count,
-        }
+        checkpoint_path = save_path.replace('.pt', '.json')
         with open(checkpoint_path, 'w') as f:
-            json.dump(checkpoint_data, f)
-
-    def _get_all_checkpoints(self):
-        """Get all checkpoint filenames."""
-        if self.save_path is None:
-            return []
-
-        if not os.path.exists(self.save_path):
-            return []
-
-        checkpoints = []
-        for f in os.listdir(self.save_path):
-            if f.endswith('.pt'):
-                checkpoints.append(f)
-
-        return checkpoints
+            json.dump({'metrics': metrics, 'best': self.best}, f)
 
     def state_dict(self):
         """Get state dict."""
         return {
             'save_path': self.save_path,
-            'save_best_only': self.save_best_only,
             'save_top_k': self.save_top_k,
-            'filename': self.filename,
+            'monitor': self.monitor,
             'mode': self.mode,
-            'every_n_epochs': self.every_n_epochs,
+            'filename': self.filename,
             'best': self.best,
-            'best_model_count': self.best_model_count,
+            'epochs_since_best': self.epochs_since_best,
+            'every_n_epochs': self.every_n_epochs,
         }
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict: Dict[str, Any]):
         """Load state dict."""
         for k, v in state_dict.items():
             if hasattr(self, k):
@@ -370,43 +319,30 @@ class LearningRateScheduler(Callback):
         self.min_lr = min_lr
 
         self.counter = 0
-        self.plateau = False
+        self.best_loss: Optional[float] = None
 
     def setup(self, trainer):
         """Setup callback."""
         super().setup(trainer)
-        for param_group in trainer.optimizer.param_groups:
-            param_group['lr'] = self.min_lr
 
-    def on_epoch_start(self, epoch):
-        """
-        Called at the start of each epoch.
-
-        Args:
-            epoch: Current epoch number
-        """
-        self.plateau = False
-        self.counter += 1
-
-        if self.counter >= self.patience:
-            self.plateau = True
-
-    def on_training_epoch_end(self, epoch: int, metrics: Dict[str, float]):
-        """
-        Called at the end of each epoch.
-
-        Args:
-            epoch: Current epoch number
-            metrics: Epoch metrics
-        """
-        if self.trainer.model.train() == False:
+    def on_epoch_end(self, epoch: int, metrics: Dict[str, float]):
+        """Called at the end of each epoch."""
+        loss = metrics.get('loss', None)
+        if loss is None:
             return
 
-        if self.plateau:
-            for param_group in self.trainer.optimizer.param_groups:
-                new_lr = max(self.min_lr, param_group['lr'] * self.factor)
-                param_group['lr'] = new_lr
+        if self.best_loss is None or loss < self.best_loss - self.min_delta:
+            self.best_loss = loss
+            self.counter = 0
+        else:
+            self.counter += 1
 
+        if self.counter >= self.patience:
+            for param_group in self.trainer.optimizer.param_groups:
+                old_lr = param_group['lr']
+                new_lr = max(self.min_lr, old_lr * self.factor)
+                param_group['lr'] = new_lr
+                logger.info("LR reduced: %.2e → %.2e (epoch %d)", old_lr, new_lr, epoch)
             self.counter = 0
 
     def state_dict(self):
@@ -416,114 +352,7 @@ class LearningRateScheduler(Callback):
             'patience': self.patience,
             'min_lr': self.min_lr,
             'counter': self.counter,
-            'plateau': self.plateau,
-        }
-
-    def load_state_dict(self, state_dict):
-        """Load state dict."""
-        for k, v in state_dict.items():
-            if hasattr(self, k):
-                setattr(self, k, v)
-
-
-class ModelCheckpoint(Callback):
-    """Model checkpoint with automatic best model tracking."""
-
-    def __init__(
-        self,
-        save_path: str = None,
-        save_top_k: int = 3,
-        monitor: str = 'val_loss',
-        mode: str = 'min',
-        filename: str = None,
-    ):
-        """
-        Initialize model checkpoint.
-
-        Args:
-            save_path: Path to save checkpoints
-            save_top_k: Number of best models to save
-            monitor: Metric to monitor
-            mode: 'min' or 'max'
-            filename: Checkpoint filename format
-        """
-        super().__init__()
-        self.save_path = save_path
-        self.save_top_k = save_top_k
-        self.monitor = monitor
-        self.mode = mode
-        self.filename = filename or 'epoch_{epoch}'
-
-        self.best: Optional[float] = None
-        self.epochs_since_best = 0
-
-    def setup(self, trainer):
-        """Setup callback."""
-        super().setup(trainer)
-        if self.mode == 'min':
-            self.best = float('inf')
-        else:
-            self.best = float('-inf')
-
-    def on_validation_end(self, metrics: Dict[str, float]):
-        """
-        Called at the end of validation.
-
-        Args:
-            metrics: Validation metrics
-        """
-        if not self.enabled:
-            return
-
-        val_metric = metrics.get(self.monitor)
-        if val_metric is None:
-            return
-
-        if self.mode == 'min':
-            if val_metric < self.best:
-                self.best = val_metric
-                self.epochs_since_best = 0
-                self._save_checkpoint(metrics)
-            else:
-                self.epochs_since_best += 1
-        else:
-            if val_metric > self.best:
-                self.best = val_metric
-                self.epochs_since_best = 0
-                self._save_checkpoint(metrics)
-            else:
-                self.epochs_since_best += 1
-
-    def _save_checkpoint(self, metrics: Dict[str, float]):
-        """Save checkpoint if we should save."""
-        if self.save_path is None:
-            return
-
-        if not os.path.exists(self.save_path):
-            os.makedirs(self.save_path)
-
-        save_path = os.path.join(self.save_path, self.filename.format(epoch=metrics.get('epoch', 0)))
-        torch.save(self.trainer.model.state_dict(), save_path)
-
-        # Save metrics
-        checkpoint_path = save_path.replace('.pt', '.json')
-        checkpoint_data = {
-            'metrics': metrics,
-            'best': self.best,
-        }
-        with open(checkpoint_path, 'w') as f:
-            json.dump(checkpoint_data, f)
-
-    def state_dict(self):
-        """Get state dict."""
-        return {
-            'save_path': self.save_path,
-            'save_top_k': self.save_top_k,
-            'monitor': self.monitor,
-            'mode': self.mode,
-            'filename': self.filename,
-            'best': self.best,
-            'epochs_since_best': self.epochs_since_best,
+            'best_loss': self.best_loss,
         }
 
     def load_state_dict(self, state_dict):
@@ -553,8 +382,9 @@ class TensorBoardLogger(Callback):
     def setup(self, trainer):
         """Setup callback."""
         super().setup(trainer)
+        model_name = type(trainer.model).__name__ if hasattr(trainer, 'model') and trainer.model else 'model'
         self.writer = SummaryWriter(
-            os.path.join(self.log_dir, f'{trainer.get_name()}-{self.name}'),
+            os.path.join(self.log_dir, f'{model_name}-{self.name}'),
         )
 
     def on_epoch_start(self, epoch):
@@ -569,22 +399,15 @@ class TensorBoardLogger(Callback):
 
         self.writer.add_scalar('epoch', epoch, epoch)
 
-    def on_training_epoch_end(self, epoch: int, metrics: Dict[str, float]):
-        """
-        Called at the end of each epoch.
-
-        Args:
-            epoch: Current epoch number
-            metrics: Epoch metrics
-        """
+    def on_epoch_end(self, epoch: int, metrics: Dict[str, float]):
+        """Called at the end of each epoch."""
         if self.writer is None:
             return
-
         for key, value in metrics.items():
             if isinstance(value, (int, float)):
                 self.writer.add_scalar(f'{key}/{key}', value, epoch)
 
-    def on_training_end(self, metrics: Dict[str, float]):
+    def on_training_end(self, history):
         """Called at the end of training."""
         if self.writer is not None:
             self.writer.close()
@@ -626,6 +449,7 @@ class ProgressLogger(Callback):
         """Setup callback."""
         super().setup(trainer)
         self.total_steps = trainer.total_steps if hasattr(trainer, 'total_steps') else 0
+        self.total_epochs = trainer.num_epochs if hasattr(trainer, 'num_epochs') else 1
 
     def on_batch_end(self, batch_idx, outputs, batch):
         """
@@ -639,11 +463,11 @@ class ProgressLogger(Callback):
         if not self.enabled:
             return
 
-        self.current_step = len(batch) if isinstance(batch, dict) else batch.size(0)
+        self.current_step = self.current_step + 1
 
         if (self.current_step - self.last_update) >= self.refresh_rate:
-            progress = self.current_step / self.total_steps * 100
-            print(f'Epoch {self.epoch}: {self.current_step}/{self.total_steps} ({progress:.1f}%)')
+            progress = self.current_step / self.total_steps * 100 if self.total_steps > 0 else 0
+            print(f'Epoch {getattr(self, "epoch", "?")}: {self.current_step}/{self.total_steps} ({progress:.1f}%)')
             self.last_update = self.current_step
 
     def on_epoch_start(self, epoch):
@@ -691,14 +515,8 @@ class PrintMetrics(Callback):
         super().__init__()
         self.metrics = metrics or []
 
-    def on_training_epoch_end(self, epoch: int, metrics: Dict[str, float]):
-        """
-        Called at the end of each epoch.
-
-        Args:
-            epoch: Current epoch number
-            metrics: Epoch metrics
-        """
+    def on_epoch_end(self, epoch: int, metrics: Dict[str, float]):
+        """Called at the end of each epoch."""
         if not self.enabled:
             return
 
