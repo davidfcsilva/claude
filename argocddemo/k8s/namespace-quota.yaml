@@ -4,6 +4,9 @@ metadata:
   name: argocddemo
   labels:
     app.kubernetes.io/name: argocddemo
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
 
 ---
 apiVersion: v1
@@ -20,6 +23,10 @@ spec:
     pods: "20"
     services.loadbalancer: "1"
     services.nodeport: "0"
+    configmaps: "20"
+    secrets: "10"
+    persistentvolumeclaims: "5"
+    replicationcontrollers: "0"
 
 ---
 apiVersion: v1

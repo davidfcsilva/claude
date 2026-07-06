@@ -38,36 +38,80 @@ spec:
                       values: [backend]
                 topologyKey: kubernetes.io/hostname
       terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+        fsGroup: 65534
+      initContainers:
+        - name: pip-install
+          image: docker.io/library/python:3.12-slim
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              pip install --quiet --cache-dir=/pip-cache
+              fastapi==0.115.6 uvicorn[standard]==0.34.0
+              --target=/pip-lib
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: pip-lib
+              mountPath: /pip-lib
+            - name: pip-cache
+              mountPath: /pip-cache
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
       containers:
         - name: fastapi
           image: docker.io/library/python:3.12-slim
           imagePullPolicy: Always
           command: ["/bin/sh", "-c"]
           args:
-            - >-
-              pip install --quiet --no-cache-dir
-              fastapi==0.115.6 uvicorn[standard]==0.34.0
-              && exec uvicorn main:app --host 0.0.0.0 --port 8000
+            - exec python -m uvicorn main:app --host 0.0.0.0 --port 8000
+          env:
+            - name: PYTHONPATH
+              value: "/pip-lib:/app"
+            - name: TMPDIR
+              value: /tmp
           workingDir: /app
           ports:
             - containerPort: 8000
               name: http
               protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: app-code
-              mountPath: /app
+              mountPath: /app/main.py
+              subPath: main.py
+            - name: pip-lib
+              mountPath: /pip-lib
+            - name: tmp-dir
+              mountPath: /tmp
           startupProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 10
-            periodSeconds: 5
+            initialDelaySeconds: 5
+            periodSeconds: 2
             failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 5
+            initialDelaySeconds: 3
             periodSeconds: 5
             failureThreshold: 3
             successThreshold: 1
@@ -81,15 +125,21 @@ spec:
             successThreshold: 1
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 50m
+              memory: 64Mi
             limits:
-              cpu: 500m
-              memory: 256Mi
+              cpu: 200m
+              memory: 128Mi
       volumes:
         - name: app-code
           configMap:
             name: backend-app-config
+        - name: pip-lib
+          emptyDir: {}
+        - name: pip-cache
+          emptyDir: {}
+        - name: tmp-dir
+          emptyDir: {}
 
 ---
 apiVersion: v1

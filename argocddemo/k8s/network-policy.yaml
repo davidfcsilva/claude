@@ -1,0 +1,83 @@
+# Default deny all ingress traffic in the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: argocddemo
+  labels:
+    app.kubernetes.io/name: argocddemo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# Allow frontend to receive external traffic on port 80
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-allow-external
+  namespace: argocddemo
+  labels:
+    app.kubernetes.io/name: argocddemo
+    app.kubernetes.io/component: frontend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: argocddemo
+      app.kubernetes.io/component: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 80
+          protocol: TCP
+      from: []  # Allow from any source (LoadBalancer exposes externally)
+
+---
+# Allow backend to receive traffic only from frontend pods on port 8000
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-allow-from-frontend
+  namespace: argocddemo
+  labels:
+    app.kubernetes.io/name: argocddemo
+    app.kubernetes.io/component: backend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: argocddemo
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8000
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocddemo
+              app.kubernetes.io/component: frontend
+
+---
+# Allow all pods to perform DNS resolution (required for service discovery)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: argocddemo
+  labels:
+    app.kubernetes.io/name: argocddemo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+      to: []  # Allow DNS to cluster DNS service (kube-system namespace)
