@@ -25,7 +25,7 @@ Subcommands:
   status                                Show pod/service status of observability components.
   logs [component] [-n lines] [--follow] Tail component logs (prometheus|grafana|all).
   describe <pod>                        Show pod spec + recent events for an obs pod.
-  register-app <name> <namespace> [<port> [<path>>]
+  register-app <name> <namespace> [<port> [<path>]]
                                         Add a scrape target for an application.
   unregister-app <name>                 Remove a registered app from Prometheus scrape config.
   dashboards [-p port]                  Port-forward Grafana to localhost (default port 3000).
@@ -289,7 +289,7 @@ do_register_app() {
       - source_labels: [__address__]
         regex: (.+):[0-9]+
         target_label: __address__
-        replacement: ${1}:$app_port
+        replacement: \${1}:$app_port
         action: replace
       - replacement: $app_path
         target_label: __metrics_path__
