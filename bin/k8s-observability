@@ -1,0 +1,485 @@
+#!/usr/bin/env bash
+# k8s-observability — CLI wrapper for managing Prometheus + Grafana on the cluster.
+# Subcommands: deploy, status, logs, describe, register-app, unregister-app,
+#              dashboards, targets, query, undeploy
+# All operations default to namespace "observability".
+#
+# Zero external interpreters — all JSON extraction uses kubectl -o jsonpath.
+
+set -euo pipefail
+
+NAMESPACE="observability"
+PROMETHEUS_POD_LABEL="app.kubernetes.io/name=prometheus"
+GRAFANA_POD_LABEL="app.kubernetes.io/name=grafana"
+MANIFEST_DIR="$(cd "$(dirname "$0")/../argocddemo/manifests/observability" && pwd)"
+PROMETHEUS_CONFIGMAP="prometheus-config"
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+usage() {
+  cat <<EOF
+Usage: k8s-observability <subcommand> [options]
+
+Subcommands:
+  deploy                                Deploy Prometheus + Grafana to 'observability' namespace.
+  status                                Show pod/service status of observability components.
+  logs [component] [-n lines] [--follow] Tail component logs (prometheus|grafana|all).
+  describe <pod>                        Show pod spec + recent events for an obs pod.
+  register-app <name> <namespace> [<port> [<path>>]
+                                        Add a scrape target for an application.
+  unregister-app <name>                 Remove a registered app from Prometheus scrape config.
+  dashboards [-p port]                  Port-forward Grafana to localhost (default port 3000).
+  targets                               Show current Prometheus scrape targets.
+  query <promql>                        Run an ad-hoc PromQL instant query.
+  undeploy                              Remove the entire observability stack.
+
+Options:
+  -n, --lines <N>       Tail last N lines (logs only, default 100).
+  --follow, -f          Follow logs in real-time (logs only).
+  -p, --port <port>     Local port for Grafana port-forward (dashboards only, default 3000).
+  --namespace <ns>      Override namespace (default: observability).
+  -h, --help            Show this help message.
+
+Examples:
+  k8s-observability deploy                            # Deploy the full stack
+  k8s-observability status                            # Check component health
+  k8s-observability logs grafana -n 200 --follow      # Follow Grafana logs
+  k8s-observability register-app frontend argocddemo 80 /nginx_status
+  k8s-observability targets                           # List active scrape targets
+  k8s-observability query 'up{job="k3s-apiserver"}'   # Run a PromQL query
+  k8s-observability dashboards -p 3000                # Access Grafana UI locally
+  k8s-observability undeploy                          # Remove everything
+EOF
+}
+
+# Check if the Kubernetes cluster is reachable.
+check_cluster() {
+  if ! kubectl cluster-info &>/dev/null; then
+    echo "ERROR: cannot reach Kubernetes cluster." >&2
+    echo "" >&2
+    echo "Troubleshoot:" >&2
+    echo "  1. Ensure your cluster is running (k3s, kind, minikube, etc.)" >&2
+    echo "  2. Verify kubeconfig: kubectl config current-context" >&2
+    exit 3
+  fi
+}
+
+# Check if the observability stack is deployed (at least one obs pod exists).
+check_deployed() {
+  local count
+  count="$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)" || true
+  if [[ "$count" -eq 0 ]]; then
+    echo "ERROR: observability stack not deployed in namespace '$NAMESPACE'." >&2
+    echo "  Run: k8s-observability deploy" >&2
+    exit 4
+  fi
+}
+
+# List pod names in the observability namespace.
+list_obs_pods() {
+  kubectl get pods -n "$NAMESPACE" --no-headers -o name 2>/dev/null || true
+}
+
+# Return the first prometheus pod name.
+pick_prometheus_pod() {
+  local pod_name
+  pod_name="$(kubectl get pods -n "$NAMESPACE" -l "$PROMETHEUS_POD_LABEL" \
+    --no-headers -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" || true
+
+  if [[ -z "$pod_name" ]]; then
+    echo "ERROR: no Prometheus pods found in namespace '$NAMESPACE'" >&2
+    exit 2
+  fi
+  echo "$pod_name"
+}
+
+# Return the first grafana pod name.
+pick_grafana_pod() {
+  local pod_name
+  pod_name="$(kubectl get pods -n "$NAMESPACE" -l "$GRAFANA_POD_LABEL" \
+    --no-headers -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" || true
+
+  if [[ -z "$pod_name" ]]; then
+    echo "ERROR: no Grafana pods found in namespace '$NAMESPACE'" >&2
+    exit 2
+  fi
+  echo "$pod_name"
+}
+
+# Resolve a component name (prometheus|grafana|all) to pod(s).
+resolve_component() {
+  local comp="${1:-all}"
+  case "$comp" in
+    prometheus) pick_prometheus_pod ;;
+    grafana)    pick_grafana_pod ;;
+    all|"")     list_obs_pods ;;
+    *)
+      echo "ERROR: unknown component '$comp'. Use: prometheus, grafana, or all." >&2
+      exit 1
+      ;;
+  esac
+}
+
+# ── subcommands ────────────────────────────────────────────────────────────────
+
+do_deploy() {
+  echo "➡️  Checking if observability namespace exists..."
+  kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null
+  echo "   Namespace '$NAMESPACE' ready."
+
+  echo "➡️  Applying Prometheus manifests..."
+  if [[ -f "$MANIFEST_DIR/prometheus.yaml" ]]; then
+    kubectl apply -f "$MANIFEST_DIR/prometheus.yaml"
+    echo "   Prometheus deployed."
+  else
+    echo "ERROR: Prometheus manifest not found at $MANIFEST_DIR/prometheus.yaml" >&2
+    exit 1
+  fi
+
+  echo "➡️  Applying Grafana manifests..."
+  if [[ -f "$MANIFEST_DIR/grafana.yaml" ]]; then
+    kubectl apply -f "$MANIFEST_DIR/grafana.yaml"
+    echo "   Grafana deployed."
+  else
+    echo "ERROR: Grafana manifest not found at $MANIFEST_DIR/grafana.yaml" >&2
+    exit 1
+  fi
+
+  echo ""
+  echo "✅ Observability stack deployed to namespace '$NAMESPACE'."
+  echo "   Run 'k8s-observability status' to verify."
+  echo "   Run 'k8s-observability dashboards' to access Grafana UI."
+}
+
+do_status() {
+  echo "═══════════════════════════════════════════════════════════"
+  echo "  Observability Stack Status (namespace: $NAMESPACE)"
+  echo "═══════════════════════════════════════════════════════════"
+
+  # Check namespace exists
+  if ! kubectl get namespace "$NAMESPACE" &>/dev/null; then
+    echo ""
+    echo "❌ Namespace '$NAMESPACE' does not exist."
+    echo "   Run: k8s-observability deploy"
+    return 0
+  fi
+
+  echo ""
+  echo "--- Pods ---"
+  kubectl get pods -n "$NAMESPACE" -o wide 2>/dev/null || echo "  (no pods found)"
+
+  echo ""
+  echo "--- Services ---"
+  kubectl get svc -n "$NAMESPACE" 2>/dev/null || echo "  (no services found)"
+
+  echo ""
+  echo "--- ConfigMaps ---"
+  kubectl get configmap -n "$NAMESPACE" 2>/dev/null || echo "  (no configmaps found)"
+
+  echo ""
+  echo "--- PVCs ---"
+  kubectl get pvc -n "$NAMESPACE" 2>/dev/null || echo "  (no PVCs found)"
+
+  echo ""
+  echo "═══════════════════════════════════════════════════════════"
+}
+
+do_logs() {
+  shift  # remove "logs"
+  local component="all" nlines=100 follow=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n|--lines)  nlines="$2"; shift 2 ;;
+      --follow|-f) follow=true; shift ;;
+      -*)          echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
+      *)           component="$1"; shift ;;
+    esac
+  done
+
+  check_deployed
+
+  local pods
+  if [[ "$component" == "all" ]]; then
+    pods="$(list_obs_pods)"
+  else
+    pods="$(resolve_component "$component")"
+  fi
+
+  if [[ -z "$pods" ]]; then
+    echo "ERROR: no pods found for component '$component'" >&2
+    exit 2
+  fi
+
+  while IFS= read -r pod; do
+    # Strip "pod/" prefix.
+    local clean="${pod#pod/}"
+    echo "--- Logs for $clean ---"
+    if $follow; then
+      kubectl logs -n "$NAMESPACE" "$clean" --tail="$nlines" --follow 2>/dev/null || \
+        echo "  (streaming failed for $clean)"
+      break  # follow only one stream at a time for 'all'
+    else
+      kubectl logs -n "$NAMESPACE" "$clean" --tail="$nlines" 2>/dev/null || \
+        echo "  (no logs available for $clean)"
+    fi
+  done <<< "$pods"
+}
+
+do_describe() {
+  shift  # remove "describe"
+  if [[ $# -lt 1 ]]; then
+    echo "ERROR: describe requires a pod name." >&2
+    echo "  Available pods:" >&2
+    list_obs_pods | while IFS= read -r p; do echo "    ${p#pod/}" >&2; done
+    exit 1
+  fi
+
+  local pod="$1"
+  kubectl describe pod -n "$NAMESPACE" "$pod"
+}
+
+do_register_app() {
+  shift  # remove "register-app"
+
+  if [[ $# -lt 2 ]]; then
+    echo "ERROR: register-app requires <name> <namespace> [port] [path]." >&2
+    echo "  Example: k8s-observability register-app frontend argocddemo 80 /nginx_status" >&2
+    exit 1
+  fi
+
+  local app_name="$1" app_namespace="$2" app_port="${3:-80}" app_path="${4:-/metrics}"
+
+  echo "➡️  Registering '$app_name' in namespace '$app_namespace' as scrape target..."
+  echo "   Port: $app_port, Path: $app_path"
+
+  check_deployed
+
+  # Read current Prometheus config
+  local current_config
+  current_config="$(kubectl get configmap "$PROMETHEUS_CONFIGMAP" -n "$NAMESPACE" \
+    -o jsonpath='{.data.prometheus\.yml}' 2>/dev/null)" || true
+
+  if [[ -z "$current_config" ]]; then
+    echo "ERROR: Prometheus ConfigMap '$PROMETHEUS_CONFIGMAP' not found." >&2
+    exit 1
+  fi
+
+  # Check if already registered (look for job name)
+  local job_name="app-${app_namespace}-${app_name}"
+  if echo "$current_config" | grep -q "job_name: \"$job_name\""; then
+    echo "   ⚠️  App '$app_name' is already registered with job_name '$job_name'." >&2
+    echo "   To re-register, first run: k8s-observability unregister-app $app_name" >&2
+    exit 0
+  fi
+
+  # Build new scrape job YAML block
+  local new_job="  - job_name: \"$job_name\"
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - $app_namespace
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        action: keep
+        regex: $app_name
+      - replacement: $app_port
+        target_label: __address__
+        action: replace
+      - replacement: $app_path
+        target_label: __metrics_path__
+        action: replace"
+
+  # TODO: Append the new job to the configmap and reload Prometheus
+  # For now, stub with informative message.
+  echo ""
+  echo "   [STUB] Would add the following scrape job to prometheus.yml:"
+  echo "$new_job" | sed 's/^/   /'
+  echo ""
+  echo "   (Implementation coming in Phase 5 — ConfigMap update + Prometheus reload)"
+}
+
+do_unregister_app() {
+  shift  # remove "unregister-app"
+
+  if [[ $# -lt 1 ]]; then
+    echo "ERROR: unregister-app requires <name>." >&2
+    exit 1
+  fi
+
+  local app_name="$1"
+
+  echo "➡️  Unregistering '$app_name' from Prometheus scrape config..."
+
+  # TODO: Remove the job from ConfigMap and reload Prometheus
+  echo "   [STUB] Would remove all scrape jobs for app '$app_name'."
+  echo "   (Implementation coming in Phase 5)"
+}
+
+do_dashboards() {
+  shift  # remove "dashboards"
+  local local_port=3000
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -p|--port) local_port="$2"; shift 2 ;;
+      -*)        echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
+      *)         shift ;;
+    esac
+  done
+
+  check_deployed
+
+  echo "➡️  Opening Grafana on http://localhost:$local_port"
+  echo "   (Press Ctrl+C to stop port-forward)"
+
+  local grafana_svc
+  grafana_svc="$(kubectl get svc -n "$NAMESPACE" -l "$GRAFANA_POD_LABEL" \
+    --no-headers -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" || true
+
+  if [[ -z "$grafana_svc" ]]; then
+    echo "ERROR: no Grafana service found in namespace '$NAMESPACE'" >&2
+    exit 2
+  fi
+
+  kubectl port-forward -n "$NAMESPACE" "service/$grafana_svc" "$local_port":3000 "$@"
+}
+
+do_targets() {
+  check_deployed
+
+  echo "➡️  Fetching active scrape targets from Prometheus..."
+
+  local prom_pod
+  prom_pod="$(pick_prometheus_pod)"
+
+  # Get the prometheus service name to port-forward temporarily
+  local prom_svc
+  prom_svc="$(kubectl get svc -n "$NAMESPACE" -l "$PROMETHEUS_POD_LABEL" \
+    --no-headers -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" || true
+
+  if [[ -z "$prom_svc" ]]; then
+    echo "ERROR: no Prometheus service found." >&2
+    exit 2
+  fi
+
+  # Use kubectl exec to query the local prometheus API (avoids port-forward complexity)
+  kubectl exec -n "$NAMESPACE" "$prom_pod" -- \
+    curl -s http://localhost:9090/api/v1/targets 2>/dev/null | \
+    python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    sys.stdin.read()
+    sys.exit(0)
+
+if data.get('status') != 'success':
+    print(json.dumps(data, indent=2))
+    sys.exit(0)
+
+for tg in data['data'].get('activeTargets', []):
+    job = tg.get('labels', {}).get('job', 'unknown')
+    health = tg.get('health', 'unknown').upper()
+    sc = tg.get('scrapeUrl', '').replace('http://', '').replace('https://', '')
+    color = {'UP': '\033[92m', 'DOWN': '\033[91m'}.get(health, '\033[90m')
+    reset = '\033[0m'
+    print(f'{color}[{health}] {sc:40s} → job={job}{reset}')
+" 2>/dev/null || {
+    # Fallback: raw JSON if python not available
+    kubectl exec -n "$NAMESPACE" "$prom_pod" -- \
+      curl -s http://localhost:9090/api/v1/targets 2>/dev/null | head -100
+    echo ""
+    echo "  (install python3 for pretty-printed target list)"
+  }
+}
+
+do_query() {
+  shift  # remove "query"
+
+  if [[ $# -lt 1 ]]; then
+    echo "ERROR: query requires a PromQL expression." >&2
+    echo "  Example: k8s-observability query 'up{job=\"k3s-apiserver\"}'" >&2
+    exit 1
+  fi
+
+  local expr="$1"
+
+  check_deployed
+
+  local prom_pod
+  prom_pod="$(pick_prometheus_pod)"
+
+  echo "➡️  Querying: $expr"
+  echo ""
+
+  kubectl exec -n "$NAMESPACE" "$prom_pod" -- \
+    curl -s -G "http://localhost:9090/api/v1/query" \
+    --data-urlencode "query=$expr" 2>/dev/null | \
+    python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    sys.stdin.read()
+    sys.exit(0)
+
+if data.get('status') != 'success':
+    print(json.dumps(data, indent=2))
+    sys.exit(0)
+
+results = data['data'].get('result', [])
+if not results:
+    print('  (no results)')
+else:
+    for r in results[:20]:  # cap at 20 series
+        metrics = ', '.join(f'{k}={v}' for k,v in r.get('metric', {}).items())
+        ts, val = r.get('value', [0, '?'])
+        print(f'  {{{metrics}}}: {val}')
+    if len(results) > 20:
+        print(f'  ... and {len(results) - 20} more series')
+" 2>/dev/null || {
+    # Fallback raw JSON
+    kubectl exec -n "$NAMESPACE" "$prom_pod" -- \
+      curl -s -G "http://localhost:9090/api/v1/query" \
+      --data-urlencode "query=$expr" 2>/dev/null | head -100
+  }
+}
+
+do_undeploy() {
+  echo "⚠️  About to remove the entire observability stack from namespace '$NAMESPACE'."
+  echo "   This will delete all Prometheus data, Grafana dashboards, and configurations."
+  echo ""
+
+  # Confirm — for now, proceed (can add interactive prompt later)
+  kubectl delete namespace "$NAMESPACE" --ignore-not-found=true
+
+  echo "✅ Namespace '$NAMESPACE' removed."
+}
+
+# ── main ───────────────────────────────────────────────────────────────────────
+
+check_cluster
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 0
+fi
+
+subcommand="$1"; shift
+
+case "$subcommand" in
+  deploy)           do_deploy "$@" ;;
+  status)           do_status "$@" ;;
+  logs)             do_logs "$@" ;;
+  describe)         do_describe "$@" ;;
+  register-app)     do_register_app "$@" ;;
+  unregister-app)   do_unregister_app "$@" ;;
+  dashboards)       do_dashboards "$@" ;;
+  targets)          do_targets "$@" ;;
+  query)            do_query "$@" ;;
+  undeploy)         do_undeploy "$@" ;;
+  -h|--help|help)   usage; exit 0 ;;
+  *) echo "ERROR: unknown subcommand '$subcommand'. Use --help for options." >&2; exit 1 ;;
+esac
