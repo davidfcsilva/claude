@@ -1,0 +1,264 @@
+# ── Prometheus Observability Stack ──────────────────────────────────────────────
+# Standalone Prometheus (no operator) with ConfigMap-driven scrape configuration.
+# Designed for a single-node k3s cluster — lightweight, zero external dependencies.
+#
+# Resources:
+#   ServiceAccount + ClusterRole + ClusterRoleBinding  → in-cluster auth for SD
+#   ConfigMap                                          → prometheus.yml scrape config
+#   StatefulSet                                        → prom/prometheus:v2.54.0
+#   Service                                            → ClusterIP 9090
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+rules:
+  # Allow kubernetes_sd_configs to discover nodes, services, and pods.
+  - apiGroups: [""]
+    resources: ["nodes", "services", "pods", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  # Unlimited access to the metrics API (heapster-style).
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: observability
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # ── Self-monitoring ────────────────────────────────────────────────
+      - job_name: "prometheus"
+        static_configs:
+          - targets: ["localhost:9090"]
+
+      # ── k3s API Server ─────────────────────────────────────────────────
+      #   Uses in-cluster service account token + CA for HTTPS auth.
+      #   Service discovery finds the kube-apiserver endpoint automatically.
+      - job_name: "k3s-apiserver"
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          insecure_skip_verify: true  # k3s uses self-signed certs
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        authorization: {}
+        relabel_configs:
+          # Only scrape the kube-apiserver service in kube-system.
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_endpoints_name]
+            regex: kube-system;kube-apiserver
+            action: keep
+
+      # ── Kubelet cAdvisor (container metrics) ───────────────────────────
+      #   Scrapes /metrics/cadvisor on each node's kubelet port (10250).
+      #   Exposes container CPU, memory, network, and disk I/O metrics.
+      - job_name: "k3s-cadvisor"
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        metrics_path: /metrics/cadvisor
+        relabel_configs:
+          # Remap node API port (6443) to kubelet port (10250).
+          - source_labels: [__address__]
+            regex: (.+):(.+)
+            target_label: __address__
+            replacement: ${1}:10250
+
+      # ── Kubelet Resource Metrics ───────────────────────────────────────
+      #   Scrapes /metrics/resource for non-container node-level resources.
+      - job_name: "k3s-kubelet"
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        metrics_path: /metrics
+        honor_labels: true
+        relabel_configs:
+          # Scrape only the resource metrics endpoint.
+          - source_labels: [__address__]
+            regex: (.+):(.+)
+            target_label: __address__
+            replacement: ${1}:10250
+          # Drop cadvisor metrics from this job (handled by k3s-cadvisor job).
+          - source_labels: [__name__]
+            regex: container_.*
+            action: drop
+
+      # ── Kubernetes Services (auto-discovered /metrics endpoints) ───────
+      #   Discovers pods with an annotated /metrics endpoint across all namespaces.
+      #   This is the target that register-app adds to via kubernetes_sd_configs.
+      - job_name: "kubernetes-pods"
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # Only scrape pods that have a metrics port exposed.
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            regex: "true"
+            action: keep
+          # Use the annotated port and path if provided.
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: ${1}:${2}
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: ${1}
+          # Label each target with namespace and pod labels.
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+spec:
+  serviceName: prometheus
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/component: monitoring
+        prometheus_io_scrape: "true"
+    spec:
+      serviceAccountName: prometheus
+      securityContext:
+        runAsUser: 65534     # nobody
+        runAsNonRoot: true
+        fsGroup: 65534
+      terminationGracePeriodSeconds: 30  # allow graceful WAL shutdown
+      containers:
+        - name: prometheus
+          image: docker.io/prom/prometheus:v2.54.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=7d"
+            - "--web.enable-lifecycle"  # allows POST /-/reload for config updates
+            - "--web.enable-admin-api"  # allows admin queries via HTTP API
+          ports:
+            - containerPort: 9090
+              name: http
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/prometheus
+            - name: prometheus-data
+              mountPath: /prometheus
+            - name: tmp-dir
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: config-volume
+          configMap:
+            name: prometheus-config
+        - name: tmp-dir
+          emptyDir: {}
+  volumeClaimTemplates:
+    - kind: PersistentVolumeClaim
+      apiVersion: v1
+      metadata:
+        name: prometheus-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: prometheus
+  ports:
+    - port: 9090
+      targetPort: http
+      protocol: TCP
+      name: http
