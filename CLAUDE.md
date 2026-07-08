@@ -102,6 +102,26 @@ Experiments are logged to `./mlruns/` with tracking URI configured in `config/de
 
 ## Operational Skills
 
+### git-vcs (`/vcs`)
+
+When the user asks to manage version control — commit, branch, push, merge, rebase, resolve conflicts, inspect history, stash, tag, or reset — use the `/vcs` slash-command. It wraps all git operations with built-in branch protection (refuses destructive ops on `main`/`master`) and conventional commit enforcement.
+
+```
+/vcs status                                    → working tree status + branch info
+/vcs commit feat "add pagination to listings"  → stage all, commit with conventional type
+/vcs branch create feat/user-auth              → create and switch to new branch
+/vcs merge development                         → merge into current branch
+/vcs conflict status                           → show files with unresolved conflicts
+/vcs conflict resolve src/app.py theirs         → accept incoming for a conflicted file
+/vcs push                                      → push with auto-tracking setup
+/vcs pull --rebase                             → pull, rebasing local commits
+/vcs tree -L 10 --all                          → commit graph for all branches
+/vcs log --feat -n 5                           → last 5 feature commits
+/vcs info                                      → repo summary (remote, ahead/behind)
+```
+
+Source: `bin/git-vcs` (executable bash script). Skill definition: `.claude/skills/git-vcs/SKILL.md`.
+
 ### k8s-troubleshoot (`/k8s`)
 
 When the argocddemo app is broken or needs debugging, use the `/k8s` slash-command. It wraps kubectl with argocddemo defaults and auto-discovers pods so you don't need to type namespace or pod names manually.
@@ -127,21 +147,21 @@ feat/description  ← feature branches always fork from development
 
 ### Creating a Feature Branch
 ```bash
-git checkout development
-git pull origin development
-git checkout -b feat/short-description
+/vcs branch switch development
+/vcs pull --rebase
+/vcs branch create feat/short-description
 ```
 
 ### Working on a Feature
-1. Commit frequently with conventional commit messages (`feat/`, `fix/`, `chore/`, `docs/`, `refactor/`).
-2. Stage only the files you intentionally changed (e.g., `git add CLAUDE.md` or `git add src/models/*.py`).
+1. Commit frequently with conventional commit messages using `/vcs commit <type> <message>` (types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`).
+2. Stage only the files you intentionally changed before committing (use `/vcs diff` to review what's about to be committed).
 
 ## Commit Guardrails
 
 ### Only Commit Complete, Working Changes
 - **Never commit mid-change.** A commit is a unit of completed work — all files for that change are written, tested (if applicable), and ready. Partial commits fragment history and make rollbacks dangerous.
 - **Verify before committing.** If the change involves code, run the relevant tests or build step first. Don't commit broken state.
-- **Don't commit to "save progress."** Use stashes (`git stash`) or uncommitted working-tree changes for in-progress work.
+- **Don't commit to "save progress."** Use stashes (`/vcs stash save`) or uncommitted working-tree changes for in-progress work.
 
 ### Always Commit to `development`
 - **Commit on feature branches only.** Feature branches fork from `development`; merge back to `development` via PR. Never commit directly to `main`.
@@ -152,7 +172,7 @@ git checkout -b feat/short-description
 
 ```bash
 # Push your feature branch
-git push -u origin feat/short-description
+/vcs push
 
 # Create a draft PR first so it's visible early
 gh pr create --base main --head feat/short-description --draft \
@@ -177,11 +197,11 @@ gh pr create --base main --head feat/short-description --draft \
 
 ### If main moves while you're working
 ```bash
-git checkout development
-git pull origin development
-git checkout feat/short-description
-git rebase development   # or merge, whichever you prefer
-# Resolve conflicts if any, then force-push: git push --force-with-lease
+/vcs branch switch development
+/vcs pull --rebase
+/vcs branch switch feat/short-description
+/vcs rebase development
+# If conflicts: /vcs conflict status, /vcs conflict resolve <file> <mode>, /vcs conflict continue
 ```
 
 ## Task Completion Rule
@@ -192,7 +212,7 @@ git rebase development   # or merge, whichever you prefer
 - **Push before ending the session.** If multiple tasks were requested and all are done, the final step is always:
 
 ```bash
-git push origin development
+/vcs push
 ```
 
 - **If on a feature branch,** push that feature branch instead, then ensure it's merged into `development` via PR before considering the work complete.
