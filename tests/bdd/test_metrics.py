@@ -1,7 +1,6 @@
 """BDD tests for metrics features."""
 
-from pytest_bdd import scenario, given, when, then, parsers
-import pytest
+from pytest_bdd import given, scenario, then, when
 from src.metrics.accuracy import Accuracy
 from src.metrics.loss import Loss
 

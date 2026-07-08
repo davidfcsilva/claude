@@ -2,8 +2,8 @@
 
 import torch
 
-from src.models.mlp_model import MLPModel
 from src.models.cnn_model import CNNModel
+from src.models.mlp_model import MLPModel
 from src.models.transformer_model import TransformerModel
 
 

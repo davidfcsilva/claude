@@ -1,6 +1,5 @@
 """Tests for evaluation metrics."""
 
-import pytest
 from src.evaluation.metrics import Accuracy, Loss
 
 

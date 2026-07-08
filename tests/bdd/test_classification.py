@@ -1,6 +1,6 @@
 """BDD tests for model classification features."""
 
-from pytest_bdd import scenario, given, when, then, parsers
+from pytest_bdd import given, parsers, scenario, then, when
 
 
 @scenario('../features/classification.feature', 'Model classifies with correct mode')

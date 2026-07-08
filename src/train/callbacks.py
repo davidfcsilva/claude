@@ -1,13 +1,11 @@
 """Training callbacks."""
 
+import json
 import logging
 import os
-import time
-import json
-from typing import Callable, Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 import torch
-import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 logger = logging.getLogger(__name__)

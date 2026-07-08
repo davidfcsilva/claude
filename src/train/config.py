@@ -1,9 +1,8 @@
 """Configuration management for training."""
 
 import json
-import os
-from dataclasses import dataclass, asdict
-from typing import Any, Optional
+from dataclasses import asdict, dataclass
+from typing import Optional
 
 
 @dataclass

@@ -1,10 +1,10 @@
 """BDD tests for training features."""
 
-from pytest_bdd import scenario, given, when, then, parsers
-import pytest
-from src.training.trainer import Trainer
-from src.models.base_model import BaseModel
+from pytest_bdd import given, scenario, then, when
+
 from src.data.base_dataset import BaseDataset
+from src.models.base_model import BaseModel
+from src.training.trainer import Trainer
 
 
 @scenario('../features/training.feature', 'Model trains on dataset')

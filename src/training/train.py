@@ -7,9 +7,9 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import yaml
 from torch.optim import Adam
 from torch.utils.data import DataLoader
-import yaml
 
 logger = logging.getLogger(__name__)
 

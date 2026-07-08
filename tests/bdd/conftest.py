@@ -1,10 +1,10 @@
 """Pytest fixtures for BDD tests."""
 
 import pytest
-from src.models.mlp_model import MLPModel
+
 from src.data.base_dataset import TensorDataset
 from src.evaluation.metrics import Accuracy, Loss
-from src.training.trainer import Trainer
+from src.models.mlp_model import MLPModel
 
 
 @pytest.fixture

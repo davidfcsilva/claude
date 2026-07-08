@@ -2,12 +2,10 @@
 
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
-from torch.optim import AdamW
+from torch.utils.data import DataLoader, TensorDataset
 
-from .trainer import Trainer
-from .metrics import AccuracyMetric, LossMetric
 from .callbacks import EarlyStopping, ModelCheckpoint, ProgressLogger
+from .trainer import Trainer
 
 
 class SimpleModel(nn.Module):
@@ -61,7 +59,7 @@ def main():
     # Train
     history = trainer.train(epochs=10)
 
-    print(f"Training complete!")
+    print("Training complete!")
     print(f"Final training loss: {history['loss'][-1]:.4f}")
     print(f"Final accuracy: {history['accuracy'][-1]:.4f}")
 
