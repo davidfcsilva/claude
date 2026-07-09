@@ -8,7 +8,7 @@
 #   ConfigMap (dashboards)                               → dashboard provisioning config
 #   Deployment                                           → grafana/grafana-oss:11.2.0
 #   PersistentVolumeClaim                                → 5Gi local-path for data
-#   Service                                              → LoadBalancer 3000 (MetalLB external IP)
+#   Service                                              → LoadBalancer 80 (MetalLB external IP)
 
 apiVersion: v1
 kind: Secret
@@ -240,7 +240,7 @@ spec:
   selector:
     app.kubernetes.io/name: grafana
   ports:
-    - port: 3000
+    - port: 80
       targetPort: http
       protocol: TCP
       name: http
