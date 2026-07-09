@@ -42,6 +42,8 @@ spec:
         runAsUser: 65534
         runAsNonRoot: true
         fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: pip-install
           image: docker.io/library/python:3.12-slim
@@ -54,11 +56,12 @@ spec:
               prometheus-client==0.21.1
               --target=/pip-lib
           securityContext:
-            runAsUser: 0
-            runAsNonRoot: false
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           volumeMounts:
             - name: pip-lib
               mountPath: /pip-lib
@@ -93,6 +96,8 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           volumeMounts:
             - name: app-code
               mountPath: /app/main.py
