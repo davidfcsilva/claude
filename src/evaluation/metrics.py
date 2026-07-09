@@ -1,6 +1,5 @@
 """Evaluation metrics for ML models."""
 
-from typing import Any
 
 
 class Accuracy:

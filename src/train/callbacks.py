@@ -1,14 +1,11 @@
 """Training callbacks."""
 
 import os
-import time
 import json
-from typing import Callable, Optional, List, Dict, Any
+from typing import Optional, List, Dict
 
 import torch
-import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-from tensorboardX import SummaryWriter as TBXWriter
 
 
 class Callback:
@@ -399,7 +396,7 @@ class LearningRateScheduler(Callback):
             epoch: Current epoch number
             metrics: Epoch metrics
         """
-        if self.trainer.model.train() == False:
+        if not self.trainer.model.train():
             return
 
         if self.plateau:

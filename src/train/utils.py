@@ -2,7 +2,8 @@
 
 import os
 import hashlib
-from typing import Dict, Any, Optional, List
+import torch
+from typing import Dict, Any, Optional
 
 
 def setup_device(

@@ -1,6 +1,5 @@
 """Tests for base model."""
 
-import pytest
 from src.models.base_model import BaseModel
 
 

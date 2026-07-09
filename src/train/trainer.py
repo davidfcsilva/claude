@@ -1,14 +1,12 @@
 """Training loop and trainer."""
 
-import os
-import time
-from typing import Dict, Any, Optional, List, Callable, Tuple
+from typing import Dict, Any, Optional, List
 
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from .metrics import MetricTracker, Metric
+from .metrics import Metric
 from .callbacks import Callback
 
 

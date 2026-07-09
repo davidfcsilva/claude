@@ -2,7 +2,7 @@
 
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import TensorDataset
 from torch.optim import AdamW
 
 from train import (
@@ -11,10 +11,9 @@ from train import (
     ModelCheckpoint,
     ProgressLogger,
     MetricTracker,
-    accuracy,
     get_default_loader,
-    get_tensor_dataset,
 )
+from train.metrics import AccuracyMetric, LossMetric
 
 
 class SimpleModel(nn.Module):

@@ -1,7 +1,6 @@
 """BDD tests for dataset features."""
 
-from pytest_bdd import scenario, given, when, then, parsers
-import pytest
+from pytest_bdd import scenario, given, when, then
 from src.data.base_dataset import BaseDataset
 
 
