@@ -62,11 +62,16 @@ spec:
               drop: ["ALL"]
             seccompProfile:
               type: RuntimeDefault
+          env:
+            - name: TMPDIR
+              value: /tmp
           volumeMounts:
             - name: pip-lib
               mountPath: /pip-lib
             - name: pip-cache
               mountPath: /pip-cache
+            - name: tmp-dir
+              mountPath: /tmp
           resources:
             requests:
               cpu: 100m
