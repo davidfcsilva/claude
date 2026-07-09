@@ -8,7 +8,7 @@
 #   ConfigMap (dashboards)                               → dashboard provisioning config
 #   Deployment                                           → grafana/grafana-oss:11.2.0
 #   PersistentVolumeClaim                                → 5Gi local-path for data
-#   Service                                              → ClusterIP 3000
+#   Service                                              → LoadBalancer 3000 (MetalLB external IP)
 
 apiVersion: v1
 kind: Secret
@@ -121,6 +121,19 @@ spec:
         runAsNonRoot: true
         fsGroup: 472
       terminationGracePeriodSeconds: 30
+      initContainers:
+        # Create the dashboards directory so provisioning doesn't error-loop on startup.
+        - name: init-dashboards
+          image: docker.io/grafana/grafana-oss:11.2.0
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "mkdir -p /var/lib/grafana/dashboards"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
       containers:
         - name: grafana
           image: docker.io/grafana/grafana-oss:11.2.0
@@ -223,7 +236,7 @@ metadata:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/component: monitoring
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app.kubernetes.io/name: grafana
   ports:
