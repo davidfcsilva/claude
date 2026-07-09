@@ -28,7 +28,7 @@ features:
           - body_contains: "@keyframes float"
           - body_contains: "@keyframes flamePulse"
           - body_contains: "ALL SYSTEMS NOMINAL"
-          - body_contains: "Claude Logo"
+          - body_contains: "Google logo"
 
   - name: Health Check Proxy
     description: Nginx proxies /health to the backend FastAPI health endpoint.

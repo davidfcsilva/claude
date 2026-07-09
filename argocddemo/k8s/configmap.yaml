@@ -77,6 +77,12 @@ data:
 
             proxy_set_header Host $host;
         }
+
+        # Prometheus metrics endpoint
+        location /nginx_status {
+            stub_status on;
+            allow all;
+        }
     }
 
 ---
@@ -90,13 +96,64 @@ data:
     """Demo backend using FastAPI."""
 
     import os
+    import time
 
     from fastapi import FastAPI, Response
     from fastapi.responses import JSONResponse
+    from prometheus_client import Counter, Histogram, generate_latest
 
     app = FastAPI(title="ArgoCD Demo Backend", version="0.1.0")
 
     _APP_MODULE_PATH = "/app/main.py"
+
+    # --- Prometheus metrics (safe across hot-reload exec) ---
+
+    try:
+        http_requests_total = Counter(
+            "http_requests_total",
+            "Total HTTP requests",
+            ["method", "endpoint", "status"],
+        )
+    except ValueError:
+        http_requests_total = app.state.http_requests_total
+
+    try:
+        http_request_duration_seconds = Histogram(
+            "http_request_duration_seconds",
+            "HTTP request latency",
+            ["method", "endpoint"],
+        )
+    except ValueError:
+        http_request_duration_seconds = app.state.http_request_duration_seconds
+
+    app.state.http_requests_total = http_requests_total
+    app.state.http_request_duration_seconds = http_request_duration_seconds
+
+    # --- Middleware: auto-instrument every request ---
+
+    @app.middleware("http")
+    async def metrics_middleware(request, call_next):
+        start = time.time()
+        response = await call_next(request)
+        duration = time.time() - start
+        endpoint = request.url.path
+        http_requests_total.labels(
+            method=request.method,
+            endpoint=endpoint,
+            status=response.status_code,
+        ).inc()
+        http_request_duration_seconds.labels(
+            method=request.method,
+            endpoint=endpoint,
+        ).observe(duration)
+        return response
+
+    # --- /metrics endpoint ---
+
+    @app.get("/metrics")
+    async def metrics():
+        """Prometheus metrics endpoint."""
+        return Response(content=generate_latest(), media_type="text/plain; version=0.0.4")
 
 
     @app.get("/health")
@@ -141,7 +198,12 @@ data:
         with open(path, "r") as f:
             source = f.read()
 
-        ctx = {"_ITEMS": _ITEMS, "app": app, "__name__": "__main__", "__builtins__": __builtins__}
+        ctx = {
+            "_ITEMS": _ITEMS,
+            "app": app,
+            "__name__": "__main__",
+            "__builtins__": __builtins__,
+        }
         exec(source, ctx)  # noqa: S102  # safe — we control the mounted file
 
         if "_ITEMS" in ctx:
@@ -365,11 +427,11 @@ data:
         </svg>
       </div>
 
-      <!-- Claude Logo -->
-      <div class="claude-logo" aria-label="Claude Logo">
+      <!-- Google logo -->
+      <div class="claude-logo" aria-label="Google logo">
         <svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true">
-          <circle cx="16" cy="16" r="14" fill="#7c3aed" opacity="0.7"/>
-          <text x="16" y="22" text-anchor="middle" fill="#e0e7ff" font-size="18" font-weight="bold" font-family="system-ui">C</text>
+          <circle cx="16" cy="16" r="14" fill="#4285f4" opacity="0.7"/>
+          <text x="16" y="22" text-anchor="middle" fill="#e0e7ff" font-size="18" font-weight="bold" font-family="system-ui">G</text>
         </svg>
       </div>
 

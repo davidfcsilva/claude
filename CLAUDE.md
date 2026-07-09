@@ -109,14 +109,28 @@ When the user asks to manage version control — commit, branch, push, merge, re
 ```
 /vcs status                                    → working tree status + branch info
 /vcs commit feat "add pagination to listings"  → stage all, commit with conventional type
+/vcs commit-amend fix "update error handling"  → amend last commit (or reuse prev message if no args)
 /vcs branch create feat/user-auth              → create and switch to new branch
+/vcs branch switch development                 → switch to existing local or remote-tracked branch
+/vcs branch list                               → list local branches (current highlighted)
+/vcs branch delete feat/old-feature            → delete a branch (refuses if unmerged; -f to force)
+/vcs branch rename feat/auth-login             → rename current branch
 /vcs merge development                         → merge into current branch
+/vcs rebase development                        → rebase current branch onto another
 /vcs conflict status                           → show files with unresolved conflicts
 /vcs conflict resolve src/app.py theirs         → accept incoming for a conflicted file
+/vcs conflict continue                         → continue merge/rebase after resolving all conflicts
+/vcs conflict abort                            → abort the current merge or rebase
 /vcs push                                      → push with auto-tracking setup
 /vcs pull --rebase                             → pull, rebasing local commits
+/vcs reset soft HEAD~1                         → undo last commit, keep changes staged
 /vcs tree -L 10 --all                          → commit graph for all branches
-/vcs log --feat -n 5                           → last 5 feature commits
+/vcs log --feat -n 5                           → last 5 feature commits (flags: --feat, --fix, --refactor, --docs, --chore, --test, --ci)
+/vcs diff                                      → show working-tree diff; add "staged" for staged-only changes
+/vcs stash                                     → stash current working tree
+/vcs stash pop                                 → apply and remove most recent stash
+/vcs stash list                                → list all stashes
+/vcs tag v0.2.0 -a -m "Release v0.2.0"         → create annotated tag; omit name to list all tags
 /vcs info                                      → repo summary (remote, ahead/behind)
 ```
 
@@ -135,6 +149,33 @@ When the argocddemo app is broken or needs debugging, use the `/k8s` slash-comma
 ```
 
 Source: `bin/k8s-troubleshoot` (executable bash script, zero external interpreter dependencies). Skill definition: `.claude/skills/k8s-troubleshoot/SKILL.md`.
+
+### k8s-observability (`/k8s-obs`)
+
+When the user asks to deploy, manage, or query observability tooling (Prometheus, Grafana) on the cluster, use the `/k8s-obs` slash-command. It deploys Prometheus + Grafana to the `observability` namespace, registers app scrape targets, queries metrics, and provides dashboard access.
+
+```
+/k8s-obs deploy                                      → deploy Prometheus + Grafana stack
+/k8s-obs status                                      → show all observability pod/service status
+/k8s-obs register-app frontend argocddemo 80 /nginx_status  → add scrape target
+/k8s-obs unregister-app frontend                     → remove a scrape target
+/k8s-obs targets                                     → show Prometheus scrape targets + health
+/k8s-obs dashboards -p 3000                          → port-forward Grafana to localhost:3000
+/k8s-obs query 'up'                                  → run ad-hoc PromQL query
+/k8s-obs logs grafana -f                             → follow Grafana logs
+```
+
+Source: `bin/k8s-observability` (executable bash script). Skill definition: `.claude/skills/k8s-observability/SKILL.md`.
+
+### Operational Workflow Checklist
+
+1. **Develop feature:** `/vcs branch create feat/...` → implement → `/vcs commit <type> <msg>`
+2. **Push & PR:** `/vcs push` → `gh pr create --draft` → test → `gh pr ready <n>` → review → `gh pr merge <n> --squash --auto`
+3. **Verify deployment:** Check argocddemo at `192.168.51.206`, validate against `argocddemo-spec.yaml`
+4. **Monitor:** `/k8s-obs deploy` → `/k8s-obs register-app <app> <ns> <port> <path>` → `/k8s-obs targets` → `/k8s-obs dashboards`
+5. **Troubleshoot:** `/k8s describe <pod>` → `/k8s logs -n 300` → `/k8s exec curl http://localhost:8000/health`
+
+---
 
 ## Branching & Merge Workflow
 

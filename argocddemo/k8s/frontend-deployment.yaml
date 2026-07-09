@@ -20,8 +20,8 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/nginx-config: "a3f8b9c1"  # bump when nginx config changes
-        checksum/nginx-static: "f2d7e4a6"  # bump when static content changes
+        checksum/nginx-config: "b7c2d4e9"  # bump when nginx config changes
+        checksum/nginx-static: "f3e8b1c7"  # bump when static content changes
       labels:
         app.kubernetes.io/name: argocddemo
         app.kubernetes.io/component: frontend
@@ -43,7 +43,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: nginx
-          image: docker.io/nginx:1.27-alpine
+          image: docker.io/nginx:alpine
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
