@@ -63,6 +63,7 @@ spec:
 
 ---
 # Allow all pods to perform DNS resolution (required for service discovery)
+# and intra-namespace communication (frontend -> backend).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -75,9 +76,12 @@ spec:
   policyTypes:
     - Egress
   egress:
+    # Allow DNS resolution to cluster DNS (kube-system namespace)
     - ports:
         - port: 53
           protocol: UDP
         - port: 53
           protocol: TCP
-      to: []  # Allow DNS to cluster DNS service (kube-system namespace)
+      to: []
+    # Allow all intra-namespace pod-to-pod traffic (required for frontend->backend proxying)
+    - to: []
