@@ -8,6 +8,12 @@ from src.models.mlp_model import MLPModel
 
 
 @pytest.fixture
+def target():
+    """Return a shared state dict for step definitions."""
+    return {}
+
+
+@pytest.fixture
 def dummy_config():
     """Return a dummy configuration for testing."""
     return {
