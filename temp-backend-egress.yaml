@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-pip-egress
+  namespace: argocddemo
+  labels:
+    app.kubernetes.io/name: argocddemo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: argocddemo
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Egress
+  egress:
+    - to: []  # Allow all egress for testing
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP

@@ -1,282 +1,69 @@
-# CLAUDE.md
+# Claude Code Repository Baseline
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Overview
 
-## Project Overview
+This repository is the **ultimate starting point** for any Claude-related project. Every `.claude/` feature (agents, skills, workflows, hooks, memory, templates) is pre-configured here as a reusable baseline.
 
-This is a machine learning project with a modular architecture designed for reproducible experiments. The project uses PyTorch as the primary deep learning framework with scikit-learn for traditional ML tasks.
+For the authoritative master instructions, see **[`.claude/CLAUDE.md`](.claude/CLAUDE.md)**.
 
-## Project Structure
+## Quick Start
 
-```
-.
-├── src/
-│   ├── models/          # Model definitions (base_model.py)
-│   ├── data/            # Data loading and preprocessing (base_dataset.py)
-│   ├── training/        # Training scripts (train.py)
-│   └── evaluation/      # Evaluation metrics (metrics.py)
-├── tests/
-│   └── unit/            # Unit tests for components
-├── config/              # YAML configuration files
-├── experiments/         # MLflow experiment logs
-├── README.md            # Project documentation
-├── requirements.txt     # Python dependencies
-├── Makefile             # Common commands
-└── .gitignore           # Git ignore patterns
-```
-
-## Common Commands
-
-### Install Dependencies
+### For a new project
 ```bash
-pip install -r requirements.txt
+# Copy the .claude directory to your project:
+cp -r .claude /path/to/your/project/
+
+# Then customize CLAUDE.md and any agents/skills for your specific needs.
 ```
 
-### Run Tests
-```bash
-pytest
-# or run a single test file:
-pytest tests/test_base_model.py -v
-```
+### Use `/init-project` 
+Run the `/init-project` slash command from `.claude/commands/init-project.md` to scaffold a complete Claude-enhanced repository in one step.
 
-### Train Model
-```bash
-python src/training/train.py --config config/default_config.yaml
-```
+## Directory Structure
 
-### Run All Commands via Make
-```bash
-make install    # Install dependencies
-make test       # Run all tests
-make train      # Train the model
-make clean      # Clean generated files
-```
+| Path | Purpose |
+|------|---------|
+| `.claude/CLAUDE.md` | Master instructions for all Claude Code features |
+| `.claude/AGENTS.md` | Quick-reference index of agent types |
+| `.claude/agents/` | Individual agent definitions (code-reviewer, planner, explorer, researcher) |
+| `.claude/skills/` | Reusable skill templates (init, review, security-review, verify, run, dataviz) |
+| `.claude/workflows/` | Multi-agent workflow templates (init-project, thorough-code-review, research-task, test-verify) |
+| `.claude/hooks/` | Hook patterns (stop, enter-exit) |
+| `.claude/commands/` | Custom slash command definitions |
+| `.claude/memory/` | Memory system templates and index |
+| `.claude/templates/` | Templates for creating new agents, skills, workflows, hooks |
+| `.claude/settings.local.json` | Permission presets and environment config |
 
-## Architecture Details
+## Feature Catalog
 
-### Model Layer (`src/models/`)
-- **BaseModel**: Abstract base class defining the interface for all models
-  - `forward()`: Perform forward pass
-  - `train()`: Set model to training mode
-  - `eval()`: Set model to evaluation mode
-  - `get_params()`: Get model parameters
+### Agents (4)
+- **code-reviewer** -- Diff review across effort levels (low/medium/high/max)
+- **planner** -- Implementation planning with trade-off analysis
+- **explorer** -- Read-only fan-out searches across codebases
+- **researcher** -- Deep web research with source verification
 
-### Data Layer (`src/data/`)
-- **BaseDataset**: Abstract base class for all datasets
-  - `__len__()`: Return number of samples
-  - `__getitem__()`: Get item at index
+### Skills (6)
+- **init** -- Initialize a new Claude-enhanced repo from this baseline
+- **review** -- Multi-dimensional code review workflow
+- **security-review** -- Security audit patterns
+- **verify** -- End-to-end flow verification
+- **run** -- Project app launch and observation
+- **dataviz** -- Data visualization guidelines
 
-### Training Layer (`src/training/`)
-- **BaseTrainer**: Abstract base class for training pipelines
-  - `train_epoch()`: Train for one epoch
-  - `evaluate()`: Evaluate model
-  - `save_checkpoint()`: Save model checkpoint
-  - `load_checkpoint()`: Load model checkpoint
+### Workflows (4)
+- **init-project** -- Scaffold a new repo from this baseline
+- **thorough-code-review** -- Multi-dimensional adversarial review
+- **research-task** -- Deep research with verification
+- **test-verify** -- Test execution + flow verification
 
-### Evaluation Layer (`src/evaluation/`)
-- **Accuracy**: Classification accuracy metric
-- **Loss**: Loss tracking metric
+### Hooks & Commands
+- **Stop hook** -- Long-running task stop conditions
+- **Enter/Exit hooks** -- Plan mode and worktree transitions
+- **/init-project** -- Custom scaffold command
 
-### Configuration (`config/`)
-- **default_config.yaml**: Training hyperparameters (learning rate, batch size, epochs, etc.)
-- MLflow settings for experiment tracking
-- Device configuration (cpu/cuda)
+## Composition Tips
 
-## Testing Strategy
-
-- Unit tests in `tests/` directory
-- Test fixtures in `conftest.py` if needed
-- Coverage reports with `pytest-cov`
-- Run with: `pytest tests/ -v --cov=src`
-
-## Environment Variables
-
-```bash
-export HF_HOME=~/.cache/huggingface
-export TORCH_HOME=~/.cache/torch
-```
-
-## MLflow Integration
-
-Experiments are logged to `./mlruns/` with tracking URI configured in `config/default_config.yaml`.
-
-## Operational Skills
-
-### git-vcs (`/vcs`)
-
-When the user asks to manage version control — commit, branch, push, merge, rebase, resolve conflicts, inspect history, stash, tag, or reset — use the `/vcs` slash-command. It wraps all git operations with built-in branch protection (refuses destructive ops on `main`/`master`) and conventional commit enforcement.
-
-```
-/vcs status                                    → working tree status + branch info
-/vcs commit feat "add pagination to listings"  → stage all, commit with conventional type
-/vcs commit-amend fix "update error handling"  → amend last commit (or reuse prev message if no args)
-/vcs branch create feat/user-auth              → create and switch to new branch
-/vcs branch switch development                 → switch to existing local or remote-tracked branch
-/vcs branch list                               → list local branches (current highlighted)
-/vcs branch delete feat/old-feature            → delete a branch (refuses if unmerged; -f to force)
-/vcs branch rename feat/auth-login             → rename current branch
-/vcs merge development                         → merge into current branch
-/vcs rebase development                        → rebase current branch onto another
-/vcs conflict status                           → show files with unresolved conflicts
-/vcs conflict resolve src/app.py theirs         → accept incoming for a conflicted file
-/vcs conflict continue                         → continue merge/rebase after resolving all conflicts
-/vcs conflict abort                            → abort the current merge or rebase
-/vcs push                                      → push with auto-tracking setup
-/vcs pull --rebase                             → pull, rebasing local commits
-/vcs reset soft HEAD~1                         → undo last commit, keep changes staged
-/vcs tree -L 10 --all                          → commit graph for all branches
-/vcs log --feat -n 5                           → last 5 feature commits (flags: --feat, --fix, --refactor, --docs, --chore, --test, --ci)
-/vcs diff                                      → show working-tree diff; add "staged" for staged-only changes
-/vcs stash                                     → stash current working tree
-/vcs stash pop                                 → apply and remove most recent stash
-/vcs stash list                                → list all stashes
-/vcs tag v0.2.0 -a -m "Release v0.2.0"         → create annotated tag; omit name to list all tags
-/vcs info                                      → repo summary (remote, ahead/behind)
-```
-
-Source: `bin/git-vcs` (executable bash script). Skill definition: `.claude/skills/git-vcs/SKILL.md`.
-
-### k8s-troubleshoot (`/k8s`)
-
-When the argocddemo app is broken or needs debugging, use the `/k8s` slash-command. It wraps kubectl with argocddemo defaults and auto-discovers pods so you don't need to type namespace or pod names manually.
-
-```
-/k8s logs                      → tail 100 lines from the first matching pod
-/k8s logs -n 500 --follow      → follow last 500 lines in real-time
-/k8s describe backend-f4abc    → full pod spec + recent events for a specific pod
-/k8s exec curl http://localhost:8000/health   → run curl inside the auto-discovered pod
-/k8s port-forward backend 8080:8000            → expose service on localhost:8080
-```
-
-Source: `bin/k8s-troubleshoot` (executable bash script, zero external interpreter dependencies). Skill definition: `.claude/skills/k8s-troubleshoot/SKILL.md`.
-
-### k8s-observability (`/k8s-obs`)
-
-When the user asks to deploy, manage, or query observability tooling (Prometheus, Grafana) on the cluster, use the `/k8s-obs` slash-command. It deploys Prometheus + Grafana to the `observability` namespace, registers app scrape targets, queries metrics, and provides dashboard access.
-
-```
-/k8s-obs deploy                                      → deploy Prometheus + Grafana stack
-/k8s-obs status                                      → show all observability pod/service status
-/k8s-obs register-app frontend argocddemo 80 /nginx_status  → add scrape target
-/k8s-obs unregister-app frontend                     → remove a scrape target
-/k8s-obs targets                                     → show Prometheus scrape targets + health
-/k8s-obs dashboards -p 3000                          → port-forward Grafana to localhost:3000
-/k8s-obs query 'up'                                  → run ad-hoc PromQL query
-/k8s-obs logs grafana -f                             → follow Grafana logs
-```
-
-Source: `bin/k8s-observability` (executable bash script). Skill definition: `.claude/skills/k8s-observability/SKILL.md`.
-
-### Operational Workflow Checklist
-
-1. **Develop feature:** `/vcs branch create feat/...` → implement → `/vcs commit <type> <msg>`
-2. **Push & PR:** `/vcs push` → `gh pr create --draft` → test → `gh pr ready <n>` → review → `gh pr merge <n> --squash --auto`
-3. **Verify deployment:** Check argocddemo at `192.168.51.206`, validate against `argocddemo-spec.yaml`
-4. **Monitor:** `/k8s-obs deploy` → `/k8s-obs register-app <app> <ns> <port> <path>` → `/k8s-obs targets` → `/k8s-obs dashboards`
-5. **Troubleshoot:** `/k8s describe <pod>` → `/k8s logs -n 300` → `/k8s exec curl http://localhost:8000/health`
-
----
-
-## Branching & Merge Workflow
-
-### Branch Model
-```
-main              ← production-ready, protected branch
-development       ← integration branch for all work-in-progress
-feat/description  ← feature branches always fork from development
-```
-
-### Creating a Feature Branch
-```bash
-/vcs branch switch development
-/vcs pull --rebase
-/vcs branch create feat/short-description
-```
-
-### Working on a Feature
-1. Commit frequently with conventional commit messages using `/vcs commit <type> <message>` (types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`).
-2. Stage only the files you intentionally changed before committing (use `/vcs diff` to review what's about to be committed).
-
-## Commit Guardrails
-
-### Only Commit Complete, Working Changes
-- **Never commit mid-change.** A commit is a unit of completed work — all files for that change are written, tested (if applicable), and ready. Partial commits fragment history and make rollbacks dangerous.
-- **Verify before committing.** If the change involves code, run the relevant tests or build step first. Don't commit broken state.
-- **Don't commit to "save progress."** Use stashes (`/vcs stash save`) or uncommitted working-tree changes for in-progress work.
-
-### Always Commit to `development`
-- **Commit on feature branches only.** Feature branches fork from `development`; merge back to `development` via PR. Never commit directly to `main`.
-- **Before committing, confirm the branch.** If you're not on a feature branch or `development`, stop and clarify — do not force-push to `main` or amend `main`.
-- **Merge path:** `feat/*` → PR → squash-merge into `development` → PR → `main`. The only way code reaches `main` is through a reviewed PR from `development`.
-
-### Creating a Pull Request (development → main)
-
-```bash
-# Push your feature branch
-/vcs push
-
-# Create a draft PR first so it's visible early
-gh pr create --base main --head feat/short-description --draft \
-  --title "feat: <brief description>" \
-  --body "## What
-<summary of changes>
-
-## Checklist
-- [ ] Tests pass
-- [ ] No lint errors
-- [ ] Self-reviewed my own code
-
-🤖 Generated with Claude Code"
-```
-
-### Completing the PR (Merging to main)
-
-1. **Ensure tests pass:** `pytest` and fix any failures on your branch.
-2. **Mark the PR as ready:** `gh pr ready <pr-number>`
-3. **Request review** if working in a team, or self-review if solo.
-4. **Squash-merge once approved:** `gh pr merge <pr-number> --squash --auto`
-
-### If main moves while you're working
-```bash
-/vcs branch switch development
-/vcs pull --rebase
-/vcs branch switch feat/short-description
-/vcs rebase development
-# If conflicts: /vcs conflict status, /vcs conflict resolve <file> <mode>, /vcs conflict continue
-```
-
-## Task Completion Rule
-
-### Push to `origin development` After Completing All Tasks
-- **Always push after finishing.** Once every task in the current session is complete — all changes committed, tested, and verified — push the code to `origin development`.
-- **Never skip the push.** Completed work stays local until pushed. Unpushed commits are at risk of being lost and invisible to the team.
-- **Push before ending the session.** If multiple tasks were requested and all are done, the final step is always:
-
-```bash
-/vcs push
-```
-
-- **If on a feature branch,** push that feature branch instead, then ensure it's merged into `development` via PR before considering the work complete.
-
-## Spec-Driven Development
-
-### Spec File: `argocddemo-spec.yaml`
-- **Single source of truth.** All definitions for the argocddemo application live in `argocddemo-spec.yaml` at the repository root. Before making any change to the application, read this file to understand what currently exists.
-- **Update the spec before implementing.** When adding or modifying components (endpoints, resources, config values, services), update the spec first, then implement the Kubernetes manifests and source code to match.
-- **Verify against the spec.** After deploying a change, confirm the live state matches the spec by checking endpoints, resource limits, probe configs, and service topology.
-
-### Validate argocddemo Changes Against the Spec
-- **Mandatory validation step.** After committing any change inside `argocddemo/`, validate that the live deployed state matches `argocddemo-spec.yaml` before considering the work complete. This is non-negotiable — a commit is not "done" until verified against the spec.
-- **Validation checklist per change:**
-  - Read `argocddemo-spec.yaml` to identify every field affected by the change.
-  - Wait for ArgoCD to sync the new manifests.
-  - Hit each backend endpoint listed in the spec via `192.168.51.206` and confirm the live response matches the spec's `example_response`.
-  - Verify pod status (`kubectl get pods -n argocddemo`) — all replicas must be Running and Ready per the spec's `replicas` count.
-  - Verify service status (`kubectl get svc frontend -n argocddemo`) — type, port, and LoadBalancer IP match the spec.
-  - If probes were changed, confirm they fire against the correct path/port by checking pod events (`kubectl describe pods <pod> -n argocddemo`).
-- **If the live state does not match the spec,** diagnose and fix the mismatch before pushing. Do not push a commit that breaks spec compliance.
-- **Update the spec first.** If the change intentionally modifies behaviour, update `argocddemo-spec.yaml` to reflect the new desired state, then implement and verify against that updated spec.
-
-### Application Access
-- The argocddemo frontend LoadBalancer is reachable at **192.168.51.206** (hardcoded on the user's cluster). Use this IP to verify the application is running, test endpoints, or check live behavior after deploying changes.
-
+1. **Single agent** for focused, self-contained tasks
+2. **Workflow** (Workflow tool) when you need deterministic orchestration across multiple agents
+3. **Skills** to encapsulate reusable patterns within a single agent call
+4. **Memory** files for persistent context across sessions

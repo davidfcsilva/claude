@@ -1,3 +1,12 @@
+---
+name: git-vcs
+description: "Version control management CLI with branch protection and conventional commit enforcement"
+when_to_use: "When the user asks to manage version control, commit changes, create branches, merge, rebase, resolve conflicts, or inspect the git tree"
+paths:
+  - "bin/git-vcs"
+user_invocable: true
+---
+
 # git-vcs — Version Control Management
 
 When the user asks to manage version control, commit changes, create branches, merge, rebase, resolve conflicts, or inspect the git tree, invoke this skill. It provides a CLI for all git operations with built-in branch protection (refuses destructive operations on `main` or `master`).
