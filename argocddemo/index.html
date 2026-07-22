@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArgoCD Demo — Abyss</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+body {
+  background: linear-gradient(180deg, #020a14 0%, #041020 25%, #061830 50%, #031028 75%, #010818 100%);
+  position: relative;
+}
+
+/* ===== UNDERWATER CAUSTIC LIGHT ===== */
+.caustic-sky {
+  position: absolute; inset: 0;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.caustic-layer {
+  position: absolute;
+  width: 300%; height: 70%;
+  top: -10%; left: -100%;
+  opacity: 0.25;
+  mix-blend-mode: screen;
+  filter: blur(80px);
+}
+
+.caustic-layer:nth-child(1) {
+  background: linear-gradient(140deg,
+    transparent 0%, transparent 30%,
+    #06b6d4 40%, #0891b2 50%, #22d3ee 60%,
+    transparent 70%, transparent 100%);
+  animation: causticDrift1 20s ease-in-out infinite alternate;
+}
+
+.caustic-layer:nth-child(2) {
+  background: linear-gradient(160deg,
+    transparent 0%, transparent 25%,
+    #14b8a6 35%, #06b6d4 45%, #67e8f9 55%,
+    transparent 65%, transparent 100%);
+  opacity: 0.18;
+  top: 5%; left: -80%;
+  animation: causticDrift2 24s ease-in-out infinite alternate;
+}
+
+.caustic-layer:nth-child(3) {
+  background: linear-gradient(130deg,
+    transparent 0%, transparent 30%,
+    #0e7490 40%, #155e75 50%, #2dd4bf 60%,
+    transparent 70%, transparent 100%);
+  opacity: 0.15;
+  top: -5%; left: -120%;
+  animation: causticDrift3 28s ease-in-out infinite alternate;
+}
+
+@keyframes causticDrift1 {
+  0%   { transform: translateX(0%) translateY(0%) scale(1) rotate(-2deg); opacity: 0.22; }
+  25%  { transform: translateX(6%) translateY(-4%) scale(1.05) rotate(1deg); opacity: 0.3; }
+  50%  { transform: translateX(14%) translateY(3%) scale(0.95) rotate(-3deg); opacity: 0.25; }
+  75%  { transform: translateX(22%) translateY(-2%) scale(1.08) rotate(2deg); opacity: 0.28; }
+  100% { transform: translateX(30%) translateY(4%) scale(1.02) rotate(-1deg); opacity: 0.2; }
+}
+
+@keyframes causticDrift2 {
+  0%   { transform: translateX(0%) translateY(0%) scale(1) rotate(2deg); opacity: 0.18; }
+  30%  { transform: translateX(-8%) translateY(5%) scale(1.04) rotate(-2deg); opacity: 0.26; }
+  60%  { transform: translateX(-18%) translateY(-3%) scale(0.96) rotate(3deg); opacity: 0.2; }
+  100% { transform: translateX(-28%) translateY(4%) scale(1.03) rotate(-1deg); opacity: 0.22; }
+}
+
+@keyframes causticDrift3 {
+  0%   { transform: translateX(0%) translateY(3%) scale(1) rotate(-3deg); opacity: 0.15; }
+  33%  { transform: translateX(8%) translateY(-5%) scale(1.1) rotate(4deg); opacity: 0.24; }
+  66%  { transform: translateX(18%) translateY(4%) scale(0.92) rotate(-5deg); opacity: 0.18; }
+  100% { transform: translateX(28%) translateY(-2%) scale(1.06) rotate(3deg); opacity: 0.2; }
+}
+
+/* ===== BUBBLES ===== */
+.bubblefield {
+  position: absolute; inset: 0;
+  z-index: 0; pointer-events: none;
+}
+
+.bubble {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.2px solid rgba(100, 220, 255, 0.25);
+  background: radial-gradient(circle at 30% 30%, rgba(180, 240, 255, 0.08), rgba(6, 182, 212, 0.04) 70%, transparent 100%);
+  top: 110%;
+}
+
+@keyframes bubbleRise {
+  0%   { transform: translateX(0) translateY(0) scale(1); opacity: 0; }
+  3%   { opacity: 0.7; }
+  50%  { transform: translateX(var(--wobble)) translateY(-50vh) scale(1.1); }
+  95%  { opacity: 0.4; }
+  100% { transform: translateX(calc(var(--wobble) * 0.5)) translateY(-120vh) scale(0.7); opacity: 0; }
+}
+
+/* ===== WAVE LAYERS ===== */
+.wave-container {
+  position: absolute; bottom: 0; left: 0; width: 100%; height: 18%;
+  z-index: 2; overflow: hidden;
+}
+
+.wave-layer {
+  position: absolute; bottom: 0; left: -10%; width: 120%; height: 100%;
+}
+
+.wave-layer svg {
+  width: 100%; height: 100%;
+  display: block;
+}
+
+@keyframes waveDrift {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ===== BIOLUMINESCENT PARTICLES ===== */
+.biofield {
+  position: absolute; inset: 0;
+  z-index: 3; pointer-events: none;
+}
+
+.bioparticle {
+  position: absolute;
+  width: var(--size, 3px); height: var(--size, 3px);
+  border-radius: 50%;
+  background: var(--color, #00ffd5);
+  box-shadow: 0 0 6px 2px var(--glow, rgba(0, 255, 213, 0.4));
+  top: var(--start-y, 0%);
+  left: var(--start-x, 0%);
+  animation: bioFloat var(--dur, 15s) var(--delay, 0s) ease-in-out infinite;
+}
+
+@keyframes bioFloat {
+  0%   { transform: translate(0, 0) scale(1); opacity: 0; }
+  8%   { opacity: var(--peak-opacity, 0.7); }
+  25%  { transform: translate(var(--dx1, 10px), var(--dy1, -20px)) scale(1.1); }
+  50%  { transform: translate(var(--dx2, 20px), var(--dy2, -40px)) scale(0.9); opacity: calc(var(--peak-opacity, 0.7) * 0.6); }
+  75%  { transform: translate(var(--dx3, 10px), var(--dy3, -60px)) scale(1.05); opacity: var(--peak-opacity, 0.7); }
+  92%  { opacity: calc(var(--peak-opacity, 0.7) * 0.4); }
+  100% { transform: translate(var(--dx4, 0px), var(--dy4, -80px)) scale(0.8); opacity: 0; }
+}
+
+/* ===== CENTER CONTENT ===== */
+.content-overlay {
+  position: absolute; inset: 0;
+  z-index: 10;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 0;
+}
+
+.title {
+  font-size: clamp(28px, 5vw, 56px);
+  font-weight: bold;
+  letter-spacing: 0.15em;
+  color: #a5f3fc;
+  text-shadow:
+    0 0 10px rgba(6, 182, 212, 0.35),
+    0 0 30px rgba(8, 145, 178, 0.18),
+    0 0 60px rgba(20, 184, 166, 0.08);
+  animation: textGlow 5s ease-in-out infinite alternate;
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+@keyframes textGlow {
+  0% {
+    text-shadow:
+      0 0 10px rgba(6, 182, 212, 0.35),
+      0 0 30px rgba(8, 145, 178, 0.18),
+      0 0 60px rgba(20, 184, 166, 0.08);
+  }
+  100% {
+    text-shadow:
+      0 0 14px rgba(34, 211, 238, 0.45),
+      0 0 35px rgba(34, 211, 238, 0.2),
+      0 0 70px rgba(6, 182, 212, 0.1);
+  }
+}
+
+/* ===== CONSOLE PANEL ===== */
+.console-panel {
+  background: linear-gradient(145deg,
+    rgba(2, 10, 20, 0.9),
+    rgba(4, 16, 32, 0.95));
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  border-radius: 8px;
+  padding: 20px 28px;
+  min-width: clamp(280px, 50vw, 420px);
+  box-shadow:
+    0 0 30px rgba(6, 182, 212, 0.06),
+    inset 0 0 40px rgba(0, 0, 0, 0.4),
+    0 4px 24px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.console-line {
+  font-size: clamp(12px, 1.5vw, 16px);
+  line-height: 1.8;
+  color: #67b8c8;
+  white-space: pre;
+  letter-spacing: 0.05em;
+}
+
+.console-line .label {
+  color: #22d3ee;
+}
+
+.console-line .value {
+  color: #e0f2fe;
+}
+
+.console-line .accent {
+  color: #67e8f9;
+}
+
+.cursor-blink {
+  display: inline-block;
+  width: 9px; height: 1.1em;
+  background: #22d3ee;
+  vertical-align: text-bottom;
+  animation: cursorBlink 1s step-end infinite;
+  margin-left: 2px;
+}
+
+@keyframes cursorBlink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* ===== DECORATIVE DIVIDER ===== */
+.divider {
+  width: clamp(200px, 40vw, 360px);
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(6, 182, 212, 0.35) 20%,
+    rgba(20, 184, 166, 0.35) 50%,
+    rgba(34, 211, 238, 0.35) 80%,
+    transparent);
+  margin: 16px auto;
+}
+
+/* ===== BOTTOM STATUS BAR ===== */
+.status-bar {
+  position: absolute; bottom: 12px;
+  width: 100%; text-align: center;
+  font-size: 11px; color: rgba(80, 140, 160, 0.45);
+  z-index: 10; letter-spacing: 0.1em;
+}
+</style>
+</head>
+<body>
+
+<!-- Underwater caustic light -->
+<div class="caustic-sky">
+  <div class="caustic-layer" id="caustic1"></div>
+  <div class="caustic-layer" id="caustic2"></div>
+  <div class="caustic-layer" id="caustic3"></div>
+</div>
+
+<!-- Rising bubbles -->
+<div class="bubblefield" id="bubblefield"></div>
+
+<!-- Wave layers at bottom -->
+<div class="wave-container">
+  <!-- Back wave (lightest, highest) -->
+  <div class="wave-layer" style="bottom: 50%; z-index: 1;">
+    <svg viewBox="0 0 2880 160" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,80 C120,40 240,120 360,80 C480,40 600,120 720,80 C840,40 960,120 1080,80 C1200,40 1320,120 1440,80 C1560,40 1680,120 1800,80 C1920,40 2040,120 2160,80 C2280,40 2400,120 2520,80 C2640,40 2760,120 2880,80 L2880,160 L0,160 Z"
+        fill="#051d2e" opacity="0.6"/>
+    </svg>
+  </div>
+  <!-- Middle wave -->
+  <div class="wave-layer" style="bottom: 25%; z-index: 2;">
+    <svg viewBox="0 0 2880 140" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,70 C100,30 200,110 320,70 C440,30 560,110 680,70 C800,30 920,110 1040,70 C1160,30 1280,110 1400,70 C1520,30 1640,110 1760,70 C1880,30 2000,110 2120,70 C2240,30 2360,110 2480,70 C2600,30 2720,110 2880,70 L2880,140 L0,140 Z"
+        fill="#031520" opacity="0.8"/>
+    </svg>
+  </div>
+  <!-- Front wave (darkest, lowest) -->
+  <div class="wave-layer" style="bottom: 0; z-index: 3;">
+    <svg viewBox="0 0 2880 120" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,60 C144,20 288,100 432,60 C576,20 720,100 864,60 C1008,20 1152,100 1296,60 C1440,20 1584,100 1728,60 C1872,20 2016,100 2160,60 C2304,20 2448,100 2592,60 C2736,20 2880,100 2880,60 L2880,120 L0,120 Z"
+        fill="#020c14"/>
+    </svg>
+  </div>
+</div>
+
+<!-- Bioluminescent particles -->
+<div class="biofield" id="biofield"></div>
+
+<!-- Center content overlay -->
+<div class="content-overlay">
+  <div class="title">ARGOCD DEMO</div>
+  <div class="divider"></div>
+  <div class="console-panel">
+    <div class="console-line"><span class="label">&gt; STATUS:          </span><span class="value">ALL SYSTEMS NOMINAL</span></div>
+    <div class="console-line"><span class="label">&gt; DEPTH:         </span><span class="value">4000m               </span><span class="accent">&#9679;</span></div>
+    <div class="console-line"><span class="label">&gt; HULL INTEGRITY:  </span><span class="value">NOMINAL             </span><span class="accent">&#9679;</span></div>
+    <div class="console-line"><span class="label">&gt; DEPLOYMENTS:   </span><span class="value">4 / 4 SYNCED        </span><span class="accent">&#9679;</span></div>
+    <div class="console-line"><span class="label">&gt; CREW:          </span><span class="value">2 / 2 ACTIVE        </span></div>
+    <div class="console-line"><span class="label">&gt; </span><span class="cursor-blink">&#9608;</span></div>
+  </div>
+</div>
+
+<div class="status-bar">ArgoCD Deep Sea Control Plane v1.0</div>
+
+<script>
+(function() {
+  var bubblefield = document.getElementById('bubblefield');
+  var biofield = document.getElementById('biofield');
+
+  // Generate bubbles (max 35)
+  for (var i = 0; i < 32; i++) {
+    var bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    var bSize = (Math.random() * 40 + 10).toFixed(0);
+    bubble.style.width = bSize + 'px';
+    bubble.style.height = bSize + 'px';
+    bubble.style.left = (Math.random() * 100) + '%';
+    var wobbleX = (Math.random() * 60 - 30).toFixed(0);
+    bubble.style.setProperty('--wobble', wobbleX + 'px');
+    var bDur = (Math.random() * 15 + 10).toFixed(1);
+    var bDelay = (Math.random() * 20).toFixed(1);
+    bubble.style.animation = 'bubbleRise ' + bDur + 's ' + bDelay + 's linear infinite';
+    bubblefield.appendChild(bubble);
+  }
+
+  // Generate bioluminescent particles (max 30)
+  var bioColors = [
+    { c: '#00ffd5', g: 'rgba(0,255,213,0.45)' },
+    { c: '#39ff8c', g: 'rgba(57,255,140,0.4)' },
+    { c: '#67e8f9', g: 'rgba(103,232,249,0.4)' },
+    { c: '#2dd4bf', g: 'rgba(45,212,191,0.35)' },
+  ];
+
+  for (var j = 0; j < 28; j++) {
+    var p = document.createElement('div');
+    p.className = 'bioparticle';
+    var bioIdx = Math.floor(Math.random() * bioColors.length);
+    var pColor = bioColors[bioIdx].c;
+    var pGlow = bioColors[bioIdx].g;
+    var pSize = (Math.random() * 3 + 1.5).toFixed(1);
+
+    p.style.setProperty('--size', pSize + 'px');
+    p.style.setProperty('--color', pColor);
+    p.style.setProperty('--glow', pGlow);
+    p.style.setProperty('--start-y', (Math.random() * 80 + 10) + '%');
+    p.style.setProperty('--start-x', (Math.random() * 90 + 5) + '%');
+    p.style.setProperty('--dur', (Math.random() * 20 + 12).toFixed(1));
+    p.style.setProperty('--delay', (Math.random() * 18).toFixed(1));
+    p.style.setProperty('--peak-opacity', (Math.random() * 0.35 + 0.4).toFixed(2));
+
+    // Floating displacement offsets
+    p.style.setProperty('--dx1', (Math.random() * 40 - 20).toFixed(0) + 'px');
+    p.style.setProperty('--dy1', (-Math.random() * 40 - 15).toFixed(0) + 'px');
+    p.style.setProperty('--dx2', (Math.random() * 60 - 30).toFixed(0) + 'px');
+    p.style.setProperty('--dy2', (-Math.random() * 70 - 30).toFixed(0) + 'px');
+    p.style.setProperty('--dx3', (Math.random() * 40 - 20).toFixed(0) + 'px');
+    p.style.setProperty('--dy3', (-Math.random() * 80 - 50).toFixed(0) + 'px');
+    p.style.setProperty('--dx4', (Math.random() * 30 - 15).toFixed(0) + 'px');
+    p.style.setProperty('--dy4', (-Math.random() * 90 - 60).toFixed(0) + 'px');
+
+    biofield.appendChild(p);
+  }
+})();
+</script>
+
+</body>
+</html>
