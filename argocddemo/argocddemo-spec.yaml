@@ -1,0 +1,207 @@
+# BDD Specification for argocddemo
+# Each "then" clause is a verifiable assertion at the LoadBalancer IP.
+# This file is the single source of truth for spec-driven development.
+
+metadata:
+  name: argocddemo
+  description: FastAPI + nginx demo app deployed via ArgoCD to Kubernetes with HPA, PDB, anti-affinity, NetworkPolicy, and Pod Security Standards
+  version: "0.3.0"
+  loadbalancer_ip: "192.168.51.206"
+  namespace: argocddemo
+
+---
+# Features describe observable behaviors of the live system.
+features:
+
+  - name: Landing Page
+    description: The root path serves a custom HTML page with an inline Saturn V-style multi-stage rocket SVG.
+    scenarios:
+      - given: Frontend pods are running and healthy
+        when: GET http://192.168.51.206/
+        then:
+          - response_status_is: 200
+          - body_contains: "<!DOCTYPE html>"
+          - body_contains: "ARGOCD DEMO"
+          - body_contains: "Mission Control"
+          - body_contains: "rocket-wrap"
+          - body_contains: "smoke-puff"
+          - body_contains: "@keyframes float"
+          - body_contains: "@keyframes flamePulse"
+          - body_contains: "ALL SYSTEMS NOMINAL"
+          - body_contains: "Claude Logo"
+
+  - name: Health Check Proxy
+    description: Nginx proxies /health to the backend FastAPI health endpoint.
+    scenarios:
+      - given: Backend pods are running and healthy
+        when: GET http://192.168.51.206/health
+        then:
+          - response_status_is: 200
+          - response_json_equals: { status: "healthy", version: "0.1.0" }
+
+  - name: Items API Proxy
+    description: Nginx proxies /api/items to the backend FastAPI items endpoint.
+    scenarios:
+      - given: Backend pods are running and healthy
+        when: GET http://192.168.51.206/api/items
+        then:
+          - response_status_is: 200
+          - response_json_is_array_with_items:
+            - id: 1
+              name: "Widget A"
+            - id: 2
+              name: "Widget B"
+            - id: 3
+              name: "Widget C"
+            - id: 4
+              name: "Widget D"
+            - id: 5
+              name: "Widget E"
+
+  - name: Hot-Reload Endpoint
+    description: POST /reload re-reads the app code from its ConfigMap volume mount and updates dynamic state without a pod restart.
+    scenarios:
+      - given: Backend pods are running and healthy
+        when: POST http://192.168.51.206/reload
+        then:
+          - response_status_is: 200
+          - response_json_equals: { ok: true }
+
+---
+# Infrastructure defines the resource guarantees required for features to work.
+infrastructure:
+  backend:
+    replicas: 2
+    image: docker.io/library/python:3.12-slim
+    port: 8000
+    init_container:
+      purpose: Pre-install pip packages into shared emptyDir volume
+      image: docker.io/library/python:3.12-slim
+    security:
+      runAsUser: 65534  # nobody
+      runAsNonRoot: true
+      readOnlyRootFilesystem: true
+      capabilities_drop: ["ALL"]
+    hpa:
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilization: 70
+      targetMemoryUtilization: 80
+  frontend:
+    replicas: 2
+    image: docker.io/nginx:1.27-alpine
+    port: 80
+    security:
+      readOnlyRootFilesystem: true
+      capabilities_drop: ["ALL"]
+    hpa:
+      minReplicas: 2
+      maxReplicas: 8
+      targetCPUUtilization: 60
+  network_policy:
+    default_deny_ingress: true
+    frontend_allow_external_port_80: true
+    backend_allow_from_frontend_port_8000: true
+    allow_dns_egress: true
+  pod_security_standards:
+    enforce: restricted
+    audit: restricted
+    warn: restricted
+  services:
+    - name: backend
+      type: ClusterIP
+      port: 8000
+    - name: frontend
+      type: LoadBalancer
+      port: 80
+      loadbalancer_ip: "192.168.51.206"
+  podDisruptionBudgets:
+    - name: backend-pdb
+      minAvailable: 1
+    - name: frontend-pdb
+      minAvailable: 1
+  resourceQuota:
+    requestsCPU: "2"
+    requestsMemory: 2Gi
+    limitsCPU: "4"
+    limitsMemory: 4Gi
+    maxPods: 20
+    servicesLoadbalancer: "1"
+    servicesNodeport: "0"
+    configmaps: "20"
+    secrets: "10"
+    persistentvolumeclaims: "5"
+    replicationcontrollers: "0"
+
+---
+# Network topology (for human reference — not testable at HTTP layer)
+topology: |
+  LoadBalancer (192.168.51.206:80)
+    └── frontend Service -> nginx pods (port 80) [HPA: 2-8 replicas]
+           ├── /api/*   -> ClusterIP backend:8000/api/* (keepalive pool)
+           ├── /health  -> ClusterIP backend:8000/health (keepalive pool)
+           ├── /reload  -> ClusterIP backend:8000/reload (keepalive pool)
+           └── /        -> space-themed landing page with Saturn V-style multi-stage rocket SVG
+  ─────────────────────────────────────────────
+  Scalability & Security (v0.3.0):
+  - HPA on backend (2-10 replicas, CPU 70%, mem 80%)
+  - HPA on frontend (2-8 replicas, CPU 60%)
+  - PDB: minAvailable=1 for both components
+  - Pod anti-affinity (preferred) spreads pods across nodes
+  - RollingUpdate strategy (maxSurge=1, maxUnavailable=0)
+  - Gzip compression + connection keepalive in nginx
+  - Namespace ResourceQuota + LimitRange governance
+  - Startup probes on backend (init container eliminates slow pip install)
+  - NetworkPolicy: default-deny-ingress, frontend external only, backend from frontend only
+  - Pod Security Standards: restricted enforced
+  - readOnlyRootFilesystem on all containers, drop ALL capabilities
+  - Backend runs as non-root (UID 65534/nobody)
+
+changelog:
+  - version: "0.3.0"
+    date: "2026-07-07"
+    changes:
+      - fix: OBS-2 resolved — pip install moved to init container with shared emptyDir cache volume
+      - feat: add NetworkPolicy (default-deny-ingress, frontend-allow-external, backend-allow-from-frontend, allow-dns-egress)
+      - feat: Pod Security Standards labels (restricted enforced, audited, warned) on namespace
+      - feat: securityContext on all containers — readOnlyRootFilesystem, drop ALL capabilities, no privilege escalation
+      - feat: backend runs as non-root (UID 65534/nobody), init container runs as root for pip install
+      - feat: reduce main container resource requests (pip overhead eliminated)
+      - feat: add TMPDIR env var for non-root Python temp file compatibility
+      - feat: emptyDir volumes for nginx writable dirs (/var/cache, /var/run, /var/log)
+      - feat: expand ResourceQuota with configmaps, secrets, PVCs, disallow replicationcontrollers
+  - version: "0.2.0"
+    date: "2026-07-07"
+    changes:
+      - fix: backend volume mount path (BLOCKER-1)
+      - fix: frontend health probes point to / instead of /health
+      - fix: pin nginx image to 1.27-alpine
+      - feat: HorizontalPodAutoscaler for backend and frontend
+      - feat: PodDisruptionBudget for both components
+      - feat: pod anti-affinity rules for HA spread
+      - feat: rolling update strategy with zero downtime
+      - feat: nginx gzip, keepalive upstream, caching headers, security headers
+      - feat: startup probes on backend for slow pip install
+      - feat: namespace resource quotas and limit ranges
+      - refactor: remove unused ingress.yaml and backend-config ConfigMap
+
+---
+# Verification rules — how "then" clauses map to live checks.
+verification:
+  base_url: "http://192.168.51.206"
+  check_after_sync:
+    - scenario: Landing Page
+      assert_then_clauses: true
+    - scenario: Health Check Proxy
+      assert_then_clauses: true
+    - scenario: Items API Proxy
+      assert_then_clauses: true
+    - scenario: Hot-Reload Endpoint
+      assert_then_clauses: true
+  infrastructure_checks:
+    - kubectl get pods -n argocddemo            # all Running and Ready
+    - kubectl get hpa -n argocddemo              # HPA targeting correct deployments
+    - kubectl get pdb -n argocddemo              # PDBs with minAvailable: 1
+    - kubectl get networkpolicy -n argocddemo    # 4 policies present
+    - kubectl describe namespace argocddemo      # pod-security labels = restricted
+    - kubectl describe resourcequota -n argocddemo  # quota within bounds

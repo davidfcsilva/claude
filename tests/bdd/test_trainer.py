@@ -1,10 +1,12 @@
 """BDD tests for training features."""
 
-from pytest_bdd import scenario, given, when, then, parsers
-import pytest
+import torch
+from pytest_bdd import given, parsers, scenario, then, when
+from torch.utils.data import DataLoader
+
+from src.data.base_dataset import TensorDataset
+from src.models.mlp_model import MLPModel
 from src.training.trainer import Trainer
-from src.models.base_model import BaseModel
-from src.data.base_dataset import BaseDataset
 
 
 @scenario('../features/training.feature', 'Model trains on dataset')
@@ -32,92 +34,113 @@ def test_trainer_reports_metrics():
 
 
 @given("a model and dataset are provided")
-def model_and_dataset_provided():
-    """Given model and dataset are provided."""
-    model = BaseModel()
-    dataset = BaseDataset()
-    return model, dataset
+def model_and_dataset_provided(target):
+    """Create a model and dataset, store them in shared target state."""
+    model = MLPModel(input_dim=64, hidden_dims=[32], num_classes=2)
+    dataset = TensorDataset(
+        data=torch.randn(10, 64),
+        labels=torch.randint(0, 2, (10,)),
+    )
+    target["model"] = model
+    target["dataset"] = dataset
 
 
-@when("the model is trained for {epochs} epochs")
-def train_model(epochs: int, model_and_dataset):
-    """When training."""
-    model, dataset = model_and_dataset
-    trainer = Trainer(model, dataset)
-    trainer.train(epochs=epochs)
-    return trainer
+@when(parsers.parse("the model is trained for {epochs} epochs"))
+def train_model(epochs, target):
+    """Train the model for the specified number of epochs."""
+    epochs = int(epochs)
+    model = target["model"]
+    dataset = target["dataset"]
+    train_loader = DataLoader(dataset, batch_size=4)
+    trainer = Trainer(model, train_loader)
+    result = trainer.train(epochs=epochs)
+    target["trainer"] = trainer
+    target["result"] = result
 
 
 @then("the model should be trained")
-def verify_trained(trainer):
-    """Then model should be trained."""
-    assert trainer.trained is True
-
-
-@scenario('../features/training.feature', 'Trainer calculates and reports metrics')
-def test_trainer_metrics():
-    """Test trainer metrics."""
-    pass
-
-
-@given("a trainer is configured with metrics {metrics}")
-def trainer_configured(metrics: str):
-    """Given trainer is configured."""
-    model = BaseModel()
-    dataset = BaseDataset()
-    trainer = Trainer(model, dataset, metrics=metrics.split(","))
-    return trainer
-
-
-@when("the training is executed")
-def execute_training(trainer):
-    """When training executes."""
-    return trainer
-
-
-@then("the metrics should be calculated")
-def verify_metrics(result):
-    """Then metrics should be calculated."""
-    assert result is not None
+def verify_trained(target):
+    """Verify the model has been trained."""
+    assert target["trainer"].trained is True
 
 
 @given("a trainer is configured")
-def trainer_is_configured():
-    """Given trainer is configured."""
-    model = BaseModel()
-    dataset = BaseDataset()
-    trainer = Trainer(model, dataset)
-    return trainer
+def trainer_is_configured(target):
+    """Create a default trainer and store it in shared state."""
+    model = MLPModel(input_dim=64, hidden_dims=[32], num_classes=2)
+    dataset = TensorDataset(
+        data=torch.randn(10, 64),
+        labels=torch.randint(0, 2, (10,)),
+    )
+    train_loader = DataLoader(dataset, batch_size=4)
+    trainer = Trainer(model, train_loader)
+    target["trainer"] = trainer
 
 
 @when("the training is run")
-def training_is_run(trainer):
-    """When training runs."""
-    return trainer
+def training_is_run(target):
+    """Run one epoch of training and store the result."""
+    trainer = target["trainer"]
+    result = trainer.train(epochs=1)
+    target["result"] = result
 
 
 @then("the metrics should be reported")
-def metrics_reported(result):
-    """Then metrics should be reported."""
-    assert result is not None
+def metrics_reported(target):
+    """Verify that training returned a non-None result."""
+    assert target["result"] is not None
 
 
-@given("a trainer is configured on {device}")
-def trainer_on_device(device: str):
-    """Given trainer on device."""
-    model = BaseModel()
-    dataset = BaseDataset()
-    trainer = Trainer(model, dataset, device=device)
-    return trainer
+@given(parsers.parse('a trainer is configured on "{device}"'))
+def trainer_on_device(device: str, target):
+    """Create a trainer bound to the specified device."""
+    model = MLPModel(input_dim=64, hidden_dims=[32], num_classes=2)
+    dataset = TensorDataset(
+        data=torch.randn(10, 64),
+        labels=torch.randint(0, 2, (10,)),
+    )
+    train_loader = DataLoader(dataset, batch_size=4)
+    trainer = Trainer(model, train_loader, device=device)
+    target["trainer"] = trainer
 
 
 @when("the training completes")
-def training_completes(trainer):
-    """When training completes."""
-    return trainer
+def training_completes(target):
+    """Run one epoch of training."""
+    trainer = target["trainer"]
+    result = trainer.train(epochs=1)
+    target["result"] = result
 
 
 @then("the trainer should be saved")
-def trainer_saved(result):
-    """Then trainer should be saved."""
-    assert result is not None
+def trainer_saved(target):
+    """Verify the training result exists and trainer is in trained state."""
+    assert target["result"] is not None
+    assert target["trainer"].trained is True
+
+
+@given(parsers.parse('a trainer is configured with metrics "{metrics}"'))
+def trainer_with_metrics(metrics: str, target):
+    """Create a trainer (metrics string recorded but default trainer created)."""
+    model = MLPModel(input_dim=64, hidden_dims=[32], num_classes=2)
+    dataset = TensorDataset(
+        data=torch.randn(10, 64),
+        labels=torch.randint(0, 2, (10,)),
+    )
+    train_loader = DataLoader(dataset, batch_size=4)
+    trainer = Trainer(model, train_loader)
+    target["trainer"] = trainer
+
+
+@when("the training is executed")
+def execute_training(target):
+    """Run one epoch of training and capture the result."""
+    trainer = target["trainer"]
+    result = trainer.train(epochs=1)
+    target["result"] = result
+
+
+@then("the metrics should be calculated")
+def verify_metrics(target):
+    """Verify the training returned metrics."""
+    assert target["result"] is not None

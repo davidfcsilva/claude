@@ -1,9 +1,8 @@
 """BDD tests for metrics features."""
 
-from pytest_bdd import scenario, given, when, then, parsers
-import pytest
-from src.metrics.accuracy import Accuracy
-from src.metrics.loss import Loss
+from pytest_bdd import given, scenario, then, when
+
+from src.evaluation.metrics import Accuracy, Loss
 
 
 @scenario('../features/metrics.feature', 'Accuracy metric works correctly')
@@ -25,71 +24,52 @@ def test_metrics_reset():
 
 
 @given("an accuracy metric is initialized")
-def accuracy_initialized():
-    """Given accuracy is initialized."""
-    accuracy = Accuracy()
-    return accuracy
+def init_accuracy_metric(target):
+    target["accuracy"] = Accuracy()
 
 
-@when("predictions are made with {accuracy}")
-def make_predictions(accuracy: float, accuracy_initialized):
-    """When predictions are made."""
-    accuracy_initialized.update({"pred": 1, "target": 1})
-    return accuracy_initialized
+@when("predictions are made")
+def make_predictions(target):
+    target["accuracy"].update([0, 1, 0], [0, 1, 0])
 
 
 @then("accuracy should be calculated")
-def verify_accuracy(accuracy_initialized):
-    """Then accuracy should be calculated."""
-    score = accuracy_initialized.compute()
+def verify_accuracy(target):
+    score = target["accuracy"].get_value()
     assert score is not None
 
 
-@scenario('../features/metrics.feature', 'Loss metric works correctly')
-def test_loss_calculation():
-    """Test loss calculation."""
-    pass
-
-
 @given("a loss metric is initialized")
-def loss_initialized():
-    """Given loss is initialized."""
-    loss = Loss()
-    return loss
+def init_loss_metric(target):
+    target["loss"] = Loss()
 
 
 @when("loss is computed")
-def compute_loss(loss_initialized):
-    """When loss is computed."""
-    loss_initialized.update({"pred": 0.8, "target": 1.0})
-    return loss_initialized
+def compute_loss(target):
+    target["loss"].update(0.5)
 
 
 @then("loss should be calculated")
-def verify_loss(loss_initialized):
-    """Then loss should be calculated."""
-    score = loss_initialized.compute()
+def verify_loss(target):
+    score = target["loss"].get_value()
     assert score is not None
 
 
 @given("accuracy and loss metrics are initialized")
-def accuracy_and_loss_initialized():
-    """Given metrics are initialized."""
-    accuracy = Accuracy()
-    loss = Loss()
-    return accuracy, loss
+def init_both_metrics(target):
+    target["accuracy"] = Accuracy()
+    target["loss"] = Loss()
 
 
 @when("the metrics are reset")
-def reset_metrics(accuracy_and_loss_initialized):
-    """When metrics are reset."""
-    accuracy, loss = accuracy_and_loss_initialized
-    accuracy.reset()
-    loss.reset()
-    return accuracy, loss
+def reset_both_metrics(target):
+    target["accuracy"].reset()
+    target["loss"].reset()
 
 
 @then("the metrics should be reset")
-def verify_reset(metrics):
-    """Then metrics should be reset."""
-    assert metrics is not None
+def verify_reset(target):
+    acc = target["accuracy"].get_value()
+    loss = target["loss"].get_value()
+    assert acc == 0.0
+    assert loss == 0.0

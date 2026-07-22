@@ -77,3 +77,6 @@ Thumbs.db
 
 # Claude Code
 .claude/
+
+# Windows temp files that ended up in repo root
+C*/

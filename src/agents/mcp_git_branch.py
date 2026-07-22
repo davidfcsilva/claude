@@ -4,12 +4,11 @@ MCP Server for Git Branch Management
 This server exposes git branch management capabilities to MCP clients.
 """
 
-import asyncio
 import argparse
+import asyncio
 import json
 import os
 import subprocess
-from datetime import datetime
 from typing import Any, List, Optional
 
 from mcp.server import Server
@@ -17,7 +16,6 @@ from mcp.server.sse import SseServerTransport
 from mcp.types import (
     CallToolResult,
     ContentBlock,
-    TextContent,
     Tool,
 )
 
@@ -114,7 +112,6 @@ class GitBranchAgent:
             args.append("--squash")
         args.append(f"-m 'Merge {branch}'")
 
-        current = [b["name"] for b in self.list_branches() if not b["remote"]][0]
         code, stdout, _ = self._run(args)
 
         return {

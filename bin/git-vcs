@@ -1,0 +1,623 @@
+#!/usr/bin/env bash
+# git-vcs — Version Control Management CLI
+# Manages all git activities (commit, tree, push, merge, conflict) on non-protected branches.
+# Usage: bin/git-vcs <subcommand> [options]
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+PROTECTED_BRANCHES=("main" "master")
+COMMIT_TYPES=("feat" "fix" "refactor" "docs" "chore" "test" "ci")
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+die() { echo -e "${RED}error: $*${NC}" >&2; exit 1; }
+warn() { echo -e "${YELLOW}warning: $*${NC}" >&2; }
+info() { echo -e "${CYAN}$*${NC}"; }
+
+require_git() {
+    git rev-parse --is-inside-work-tree &>/dev/null || die "not a git repository (exit 4)"
+}
+
+current_branch() {
+    git symbolic-ref --short HEAD 2>/dev/null || git describe --tags --exact-match 2>/dev/null || echo "detached"
+}
+
+is_protected() {
+    local branch
+    branch="$(current_branch)"
+    for pb in "${PROTECTED_BRANCHES[@]}"; do
+        [[ "$branch" == "$pb" ]] && return 0
+    done
+    return 1
+}
+
+check_protected() {
+    if is_protected; then
+        die "operation blocked on protected branch '$(current_branch)'. Switch to a feature branch first. (exit 2)"
+    fi
+}
+
+upstream_exists() {
+    git rev-parse --verify @{u} &>/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Status
+# ---------------------------------------------------------------------------
+cmd_status() {
+    require_git
+    echo -e "${BOLD}Branch: ${GREEN}$(current_branch)${NC}"
+    if upstream_exists; then
+        local ahead behind
+        ahead="$(git rev-list --count @{u}..HEAD 2>/dev/null || echo 0)"
+        behind="$(git rev-list --count HEAD..@{u} 2>/dev/null || echo 0)"
+        echo -e "Upstream: ${CYAN}@{u}${NC}  (ahead ${ahead}, behind ${behind})"
+    fi
+    echo ""
+    git status --short --branch --renames
+}
+
+# ---------------------------------------------------------------------------
+# Tree (commit graph)
+# ---------------------------------------------------------------------------
+cmd_tree() {
+    require_git
+    local depth=5 all_branches=false args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -L|--depth) depth="$2"; shift 2 ;;
+            --all) all_branches=true; shift ;;
+            *) die "unknown tree option: $1" ;;
+        esac
+    done
+    if $all_branches; then
+        args+=("--all")
+    fi
+    git log --graph --oneline --decorate "${args[@]}" -n "$depth"
+}
+
+# ---------------------------------------------------------------------------
+# Commit
+# ---------------------------------------------------------------------------
+cmd_commit() {
+    require_git
+    [[ $# -lt 2 ]] && die "usage: git-vcs commit <type> <message>"
+    local ctype="$1" msg="$2" shift 2
+
+    # Validate type
+    local valid=false
+    for t in "${COMMIT_TYPES[@]}"; do
+        [[ "$ctype" == "$t" ]] && valid=true && break
+    done
+    $valid || die "invalid commit type '$ctype'. Valid: ${COMMIT_TYPES[*]}"
+
+    # Allow committing on protected if user explicitly opts in with --allow-protected
+    if is_protected && [[ "${1:-}" != "--allow-protected" ]]; then
+        check_protected
+    fi
+
+    # Stage all changes (modified + new, not deleted untracked)
+    git add -A
+    local staged
+    staged="$(git diff --cached --name-only)"
+    [[ -z "$staged" ]] && warn "nothing to commit, working tree clean" && return 0
+
+    info "Staging ${#staged//$'\n'/ } file(s)..."
+    git commit -m "${ctype}: ${msg}"
+    info "Committed ${ctype}: ${msg}"
+}
+
+cmd_commit_amend() {
+    require_git
+    check_protected
+    if [[ $# -ge 2 ]]; then
+        local ctype="$1" msg="$2"
+        git add -A
+        git commit --amend -m "${ctype}: ${msg}"
+        info "Amended commit: ${ctype}: ${msg}"
+    else
+        git add -A
+        git commit --amend --no-edit
+        info "Amended commit (message unchanged)"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Branch
+# ---------------------------------------------------------------------------
+cmd_branch() {
+    require_git
+    [[ $# -lt 1 ]] && die "usage: git-vcs branch <create|switch|list|delete|rename> ..."
+    local action="$1"; shift
+    case "$action" in
+        create)
+            [[ $# -lt 1 ]] && die "usage: git-vcs branch create <name>"
+            git checkout -b "$1"
+            info "created and switched to branch '$1'"
+            ;;
+        switch)
+            [[ $# -lt 1 ]] && die "usage: git-vcs branch switch <name>"
+            local target="$1"
+            # Try local first, then remote tracking
+            if git show-ref --verify --quiet "refs/heads/$target"; then
+                git checkout "$target"
+            elif git show-ref --verify --quiet "refs/remotes/origin/$target"; then
+                git checkout -b "$target" "origin/$target"
+            else
+                die "branch '$target' not found locally or on origin"
+            fi
+            info "switched to branch '$target'"
+            ;;
+        list)
+            local show_remote=false
+            while [[ $# -gt 0 ]]; do
+                [[ "$1" == "--remote" ]] && show_remote=true && shift
+            done
+            if $show_remote; then
+                git branch -r
+            else
+                # Highlight current branch in green
+                local current
+                current="$(current_branch)"
+                git branch | sed "s/^\\* ${current}/\\x1b[0;32m&\\x1b[0m/"
+            fi
+            ;;
+        delete)
+            [[ $# -lt 1 ]] && die "usage: git-vcs branch delete <name> [-f]"
+            local bname="$1" force=false
+            [[ "${2:-}" == "-f" ]] && force=true
+            for pb in "${PROTECTED_BRANCHES[@]}"; do
+                [[ "$bname" == "$pb" ]] && die "cannot delete protected branch '$bname' (exit 2)"
+            done
+            if $force; then
+                git branch -D "$bname"
+            else
+                git branch -d "$bname" || warn "'$bname' has unmerged changes. Use -f to force-delete."
+            fi
+            info "deleted branch '$bname'"
+            ;;
+        rename)
+            [[ $# -lt 1 ]] && die "usage: git-vcs branch rename <new-name>"
+            git branch -m "$1"
+            info "renamed branch to '$1'"
+            ;;
+        *) die "unknown branch action: $action" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Push
+# ---------------------------------------------------------------------------
+cmd_push() {
+    require_git
+    local force=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force) force=true; shift ;;
+            *) die "unknown push option: $1" ;;
+        esac
+    done
+    if $force && is_protected; then
+        die "force-push blocked on protected branch '$(current_branch)' (exit 2)"
+    fi
+
+    local branch
+    branch="$(current_branch)"
+    if upstream_exists; then
+        if $force; then
+            git push --force-with-lease
+        else
+            git push
+        fi
+    else
+        # First push: set up tracking
+        if $force; then
+            git push --force-with-lease -u origin "$branch"
+        else
+            git push -u origin "$branch"
+        fi
+        info "set up tracking: $branch -> origin/$branch"
+    fi
+    info "pushed '$branch' to origin"
+}
+
+# ---------------------------------------------------------------------------
+# Pull
+# ---------------------------------------------------------------------------
+cmd_pull() {
+    require_git
+    local rebase=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --rebase) rebase=true; shift ;;
+            *) die "unknown pull option: $1" ;;
+        esac
+    done
+    if $rebase; then
+        git pull --rebase
+    else
+        git pull
+    fi
+    info "pulled $(current_branch) from upstream"
+}
+
+# ---------------------------------------------------------------------------
+# Merge
+# ---------------------------------------------------------------------------
+cmd_merge() {
+    require_git
+    check_protected
+    [[ $# -lt 1 ]] && die "usage: git-vcs merge <branch>"
+    local source="$1"
+
+    # Check if branch exists
+    git show-ref --verify --quiet "refs/heads/$source" || \
+    git show-ref --verify --quiet "refs/remotes/origin/$source" || \
+        die "branch '$source' not found"
+
+    info "merging '$source' into '$(current_branch)'..."
+    if git merge "$source" --no-edit; then
+        info "merged successfully"
+    else
+        # Check if there's a rebase in progress (merge won't happen during rebase)
+        warn "merge conflicts detected. Resolve with:"
+        echo "  bin/git-vcs conflict status"
+        echo "  bin/git-vcs conflict resolve <file> <ours|theirs|manual>"
+        echo "  bin/git-vcs conflict continue"
+        echo "  bin/git-vcs conflict abort"
+        exit 3
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Rebase
+# ---------------------------------------------------------------------------
+cmd_rebase() {
+    require_git
+    check_protected
+    [[ $# -lt 1 ]] && die "usage: git-vcs rebase <branch>"
+    local onto="$1"
+
+    git show-ref --verify --quiet "refs/heads/$onto" || \
+    git show-ref --verify --quiet "refs/remotes/origin/$onto" || \
+        die "branch '$onto' not found"
+
+    info "rebasing '$(current_branch)' onto '$onto'..."
+    if git rebase "$onto"; then
+        info "rebased successfully"
+    else
+        # Rebase stopped due to conflict
+        warn "rebase conflicts detected. Resolve with:"
+        echo "  bin/git-vcs conflict status"
+        echo "  bin/git-vcs conflict resolve <file> <ours|theirs|manual>"
+        echo "  bin/git-vcs conflict continue"
+        echo "  bin/git-vcs conflict abort"
+        exit 3
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Conflict Management
+# ---------------------------------------------------------------------------
+cmd_conflict() {
+    require_git
+    [[ $# -lt 1 ]] && die "usage: git-vcs conflict <status|resolve|continue|abort>"
+    local action="$1"; shift
+    case "$action" in
+        status)
+            # Detect if we're in a merge or rebase conflict
+            if [[ -f .git/MERGE_HEAD ]]; then
+                echo -e "${BOLD}Merge conflicts:${NC}"
+                git diff --name-only --diff-filter=U
+            elif [[ -d .git/rebase-merge ]] || [[ -d .git/rebase-apply ]]; then
+                echo -e "${BOLD}Rebase conflicts:${NC}"
+                git diff --name-only --diff-filter=U
+            else
+                info "no active conflicts"
+            fi
+            ;;
+        resolve)
+            [[ $# -lt 1 ]] && die "usage: git-vcs conflict resolve <file> [ours|theirs|manual]"
+            local file="$1" mode="${2:-manual}"
+            if [[ ! -f "$file" ]]; then
+                die "file '$file' not found"
+            fi
+            case "$mode" in
+                ours)
+                    git checkout --ours "$file"
+                    git add "$file"
+                    info "resolved '$file' using ours"
+                    ;;
+                theirs)
+                    if [[ -d .git/rebase-merge ]] || [[ -d .git/rebase-apply ]]; then
+                        # During rebase, "theirs" is the upstream we're rebasing onto
+                        git checkout --theirs "$file"
+                    else
+                        git checkout --theirs "$file"
+                    fi
+                    git add "$file"
+                    info "resolved '$file' using theirs"
+                    ;;
+                manual)
+                    info "open '$file' in your editor to resolve conflicts manually, then:"
+                    echo "  bin/git-vcs conflict resolve $file"
+                    echo " (run again without a mode after editing to stage)"
+                    # If no mode but file is passed, just stage it (user edited already)
+                    if [[ $# -eq 1 ]]; then
+                        git add "$file"
+                        info "staged '$file'"
+                    fi
+                    ;;
+                *) die "unknown resolve mode: $mode. Use ours, theirs, or manual." ;;
+            esac
+            ;;
+        continue)
+            if [[ -f .git/MERGE_HEAD ]]; then
+                git merge --continue
+                info "merge continued"
+            elif [[ -d .git/rebase-merge ]] || [[ -d .git/rebase-apply ]]; then
+                git rebase --continue
+                info "rebase continued"
+            else
+                info "no merge or rebase in progress"
+            fi
+            ;;
+        abort)
+            if [[ -f .git/MERGE_HEAD ]]; then
+                git merge --abort
+                info "merge aborted"
+            elif [[ -d .git/rebase-merge ]] || [[ -d .git/rebase-apply ]]; then
+                git rebase --abort
+                info "rebase aborted"
+            else
+                info "no merge or rebase to abort"
+            fi
+            ;;
+        *) die "unknown conflict action: $action" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Log (filtered by conventional commit type)
+# ---------------------------------------------------------------------------
+cmd_log() {
+    require_git
+    local count=0 type_filter="" author="" grep_pattern="" args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -n|--count) count="$2"; shift 2 ;;
+            --author) author="$2"; shift 2 ;;
+            --grep) grep_pattern="$2"; shift 2 ;;
+            --feat|--fix|--refactor|--docs|--chore|--test|--ci)
+                type_filter="${1#--}"; shift ;;
+            *) shift ;;
+        esac
+    done
+    if [[ -n "$type_filter" ]]; then
+        args+=("--grep" "^${type_filter}: ")
+    fi
+    if [[ -n "$author" ]]; then
+        args+=("--author" "$author")
+    fi
+    if [[ -n "$grep_pattern" ]]; then
+        args+=("--grep" "$grep_pattern")
+    fi
+    if [[ $count -gt 0 ]]; then
+        args+=("-n" "$count")
+    fi
+    git log --graph --oneline --decorate "${args[@]}"
+}
+
+# ---------------------------------------------------------------------------
+# Diff
+# ---------------------------------------------------------------------------
+cmd_diff() {
+    require_git
+    local staged=false
+    if [[ "${1:-}" == "staged" ]]; then
+        staged=true
+    fi
+    if $staged; then
+        git diff --cached
+    else
+        git diff
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Stash
+# ---------------------------------------------------------------------------
+cmd_stash() {
+    require_git
+    local action="${1:-save}"
+    case "$action" in
+        save)
+            git stash push -m "stash $(date +%Y-%m-%d_%H:%M:%S)"
+            info "stashed working tree"
+            ;;
+        pop)
+            git stash pop
+            info "popped stash"
+            ;;
+        list)
+            git stash list
+            ;;
+        apply)
+            git stash apply "${1:-}"
+            info "applied stash"
+            ;;
+        drop)
+            git stash drop "${1:-}"
+            info "dropped stash"
+            ;;
+        *) die "unknown stash action: $action. Use save, pop, list, apply, or drop." ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Tag
+# ---------------------------------------------------------------------------
+cmd_tag() {
+    require_git
+    if [[ $# -eq 0 ]]; then
+        git tag -l
+        return
+    fi
+    local name="" annotated=false message=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -a) annotated=true; shift ;;
+            -m) message="$2"; shift 2 ;;
+            *) name="$1"; shift ;;
+        esac
+    done
+    if [[ -z "$name" ]]; then
+        git tag -l
+    elif $annotated; then
+        [[ -z "$message" ]] && die "annotated tags require -m \"message\""
+        git tag -a "$name" -m "$message"
+        info "created annotated tag '$name'"
+    else
+        git tag "$name"
+        info "created lightweight tag '$name'"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Reset
+# ---------------------------------------------------------------------------
+cmd_reset() {
+    require_git
+    local mode="mixed" ref="HEAD"
+    if [[ "${1:-}" == "hard" ]] && is_protected; then
+        die "hard reset blocked on protected branch '$(current_branch)' (exit 2)"
+    fi
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            soft|mixed|hard) mode="$1"; shift ;;
+            *) ref="$1"; shift ;;
+        esac
+    done
+    if [[ "$mode" == "hard" ]]; then
+        warn "resetting ${mode} to $ref — this will permanently discard commits!"
+    fi
+    git reset "$mode" "$ref"
+    info "reset ${mode} to $ref"
+}
+
+# ---------------------------------------------------------------------------
+# Info (repo summary)
+# ---------------------------------------------------------------------------
+cmd_info() {
+    require_git
+    local branch remote_url ahead behind last_msg last_hash
+
+    branch="$(current_branch)"
+    remote_url="$(git remote get-url origin 2>/dev/null || echo 'no remote')"
+
+    if upstream_exists; then
+        ahead="$(git rev-list --count @{u}..HEAD 2>/dev/null || echo 0)"
+        behind="$(git rev-list --count HEAD..@{u} 2>/dev/null || echo 0)"
+    else
+        ahead="-"
+        behind="-"
+    fi
+
+    last_hash="$(git log -1 --format='%h' 2>/dev/null || echo 'none')"
+    last_msg="$(git log -1 --format='%s' 2>/dev/null || echo 'no commits')"
+
+    echo -e "${BOLD}Repository:${NC} $(git rev-parse --show-toplevel)"
+    echo -e "${BOLD}Remote:${NC} $remote_url"
+    echo -e "${BOLD}Branch:${NC} ${GREEN}$branch${NC}"
+    echo -e "${BOLD}Ahead/Behind:${NC} $ahead / $behind"
+    echo -e "${BOLD}Last Commit:${NC} $last_hash — $last_msg"
+
+    # Count unpushed commits
+    if upstream_exists; then
+        local unpushed
+        unpushed="$(git log --oneline @{u}..HEAD 2>/dev/null | wc -l | tr -d ' ')"
+        echo -e "${BOLD}Unpushed Commits:${NC} $unpushed"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Help
+# ---------------------------------------------------------------------------
+cmd_help() {
+    cat <<'EOF'
+git-vcs — Version Control Management CLI
+
+Usage: bin/git-vcs <subcommand> [options]
+
+Subcommands:
+  status                         Show working tree status and branch info
+  tree [-L N] [--all]           Visualize commit history as a graph
+  commit <type> <message>       Stage all and commit (conventional commits)
+  commit-amend [<type> <msg>]   Amend the most recent commit
+  branch <action> [args]        Create, switch, list, delete, or rename branches
+  push [--force]               Push current branch (sets up tracking on first push)
+  pull [--rebase]              Pull from upstream (--rebase to rebase instead of merge)
+  merge <branch>               Merge a branch into the current branch
+  rebase <branch>              Rebase current branch onto another
+  conflict <action> [args]     Manage merge/rebase conflicts (status, resolve, continue, abort)
+  log [options]                Show commit log (--feat, --fix, -n N, --author, --grep)
+  diff [staged]                Show working-tree or staged diff
+  stash [save|pop|list]        Stash working tree changes
+  tag [<name>] [-a -m "msg"]   Create or list tags
+  reset [mode] [<ref>]         Reset current branch (soft, mixed, hard)
+  info                         Show repo summary (remote, branch, ahead/behind)
+  help                         Show this help message
+
+Conventional commit types: feat, fix, refactor, docs, chore, test, ci
+
+Protected branches (no direct commit/force-push/hard-reset): main, master
+
+Examples:
+  bin/git-vcs status
+  bin/git-vcs commit feat "add user authentication endpoint"
+  bin/git-vcs branch create feat/user-auth
+  bin/git-vcs merge development
+  bin/git-vcs conflict resolve src/app.py theirs
+  bin/git-vcs push
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Main dispatcher
+# ---------------------------------------------------------------------------
+main() {
+    [[ $# -eq 0 ]] && cmd_help
+
+    local subcmd="$1"; shift
+    case "$subcmd" in
+        status) cmd_status "$@" ;;
+        tree|log-tree) cmd_tree "$@" ;;
+        commit) cmd_commit "$@" ;;
+        commit-amend|amend) cmd_commit_amend "$@" ;;
+        branch) cmd_branch "$@" ;;
+        push) cmd_push "$@" ;;
+        pull) cmd_pull "$@" ;;
+        merge) cmd_merge "$@" ;;
+        rebase) cmd_rebase "$@" ;;
+        conflict) cmd_conflict "$@" ;;
+        log) cmd_log "$@" ;;
+        diff) cmd_diff "$@" ;;
+        stash) cmd_stash "$@" ;;
+        tag) cmd_tag "$@" ;;
+        reset) cmd_reset "$@" ;;
+        info) cmd_info "$@" ;;
+        help|-h|--help) cmd_help ;;
+        *) die "unknown subcommand: $subcmd. Run 'bin/git-vcs help' for usage." ;;
+    esac
+}
+
+main "$@"

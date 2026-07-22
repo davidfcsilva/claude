@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+# k8s-troubleshoot — CLI wrapper for argocddemo K8s operations.
+# Subcommands: logs, exec, describe, port-forward
+# All operations default to namespace "argocddemo".
+#
+# Zero external interpreters — all JSON extraction uses kubectl -o jsonpath.
+
+set -euo pipefail
+
+NAMESPACE="argocddemo"
+PICK_LABEL="app.kubernetes.io/name in (backend,frontend)"
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+usage() {
+  cat <<EOF
+Usage: k8s-troubleshoot <subcommand> [options]
+
+Subcommands:
+  logs [pod] [-n lines|--follow]     Tail container logs. Auto-discovers pods.
+  exec <cmd> [pod]                    Run a command inside a container.
+  describe [pod]                      Show pod spec + recent events.
+  port-forward <svc> <local:remote>   Expose a service locally.
+
+Options:
+  --container <name>    Select which container (defaults to first).
+  -n, --lines <N>       Tail last N lines (logs only, default 100).
+  --follow, -f          Follow logs in real-time (logs only).
+  --namespace <ns>      Override namespace (default: argocddemo).
+  -h, --help            Show this help message.
+
+Pod auto-discovery:
+  When no pod name is given the first matching pod for app.kubernetes.io/name
+  in (backend,frontend) is used automatically.
+EOF
+}
+
+# Check if the Kubernetes cluster is reachable. Returns 0 if yes, prints guidance on failure.
+check_cluster() {
+  if ! kubectl cluster-info &>/dev/null; then
+    echo "ERROR: cannot reach Kubernetes cluster." >&2
+    echo "" >&2
+    echo "Troubleshoot:" >&2
+    echo "  1. Ensure your cluster is running (Docker Desktop, kind, minikube, etc.)" >&2
+    echo "  2. Verify kubeconfig: kubectl config current-context" >&2
+    echo "  3. If on a managed cluster, run: kubectl config set-context --current --namespace=$NAMESPACE" >&2
+    exit 3
+  fi
+}
+
+# List pod names matching the label selector; prints "NAME" per line.
+list_pods() {
+  kubectl get pods -n "$NAMESPACE" -l "$PICK_LABEL" \
+    --no-headers -o name 2>/dev/null || true
+}
+
+# Return the first pod name (stripped of "pod/" prefix).
+pick_pod() {
+  local pod_name
+  pod_name="$(kubectl get pods -n "$NAMESPACE" -l "$PICK_LABEL" \
+    --no-headers -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" || true
+
+  if [[ -z "$pod_name" ]]; then
+    echo "ERROR: no pods found in namespace '$NAMESPACE' matching label $PICK_LABEL" >&2
+    echo "  (check: kubectl get pods -n $NAMESPACE -l '$PICK_LABEL')" >&2
+    exit 2
+  fi
+
+  echo "$pod_name"
+}
+
+# Resolve --container to the actual container name using jsonpath.
+# Args: pod wanted_name
+# If wanted_name is empty, returns the first container.
+resolve_container() {
+  local pod="$1" wanted="${2:-}"
+
+  if [[ -n "$wanted" ]]; then
+    # Verify the requested container exists via list of all container names.
+    local available
+    available="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+      -o jsonpath='{range .spec.containers[*]}{.name}{"\n"}{end}' 2>/dev/null)" || true
+
+    if [[ -z "$available" ]]; then
+      echo "ERROR: cannot read containers for pod '$pod'" >&2
+      exit 1
+    fi
+
+    # Check containment without python/jq — pure bash glob.
+    local found=false
+    while IFS= read -r name; do
+      if [[ "$name" == "$wanted" ]]; then
+        found=true
+        break
+      fi
+    done <<< "$available"
+
+    if ! $found; then
+      echo "ERROR: container '$wanted' not found in pod '$pod'." >&2
+      echo "  Available: $(echo "$available" | tr '\n' ', ' | sed 's/,$//')" >&2
+      exit 1
+    fi
+
+    echo "$wanted"
+  else
+    # Return first container name.
+    local first
+    first="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+      -o jsonpath='{.spec.containers[0].name}' 2>/dev/null)" || true
+
+    if [[ -z "$first" ]]; then
+      echo "ERROR: cannot determine default container for pod '$pod'" >&2
+      exit 1
+    fi
+
+    echo "$first"
+  fi
+}
+
+# ── subcommands ────────────────────────────────────────────────────────────────
+
+do_logs() {
+  shift  # remove "logs"
+  local pod="" nlines=100 follow=false wanted="" args=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --container) wanted="$2"; shift 2 ;;
+      -n|--lines)  nlines="$2"; shift 2 ;;
+      --follow|-f) follow=true; shift ;;
+      -*)          echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
+      *)           pod="$1"; shift ;;
+    esac
+  done
+
+  [[ -z "$pod" ]] && pod="$(pick_pod)"
+
+  local container=""
+  if [[ -n "$wanted" ]]; then
+    container="$(resolve_container "$pod" "$wanted")"
+    args+=(-c "$container")
+  else
+    local c
+    c="$(resolve_container "$pod" "")"
+    args+=(-c "$c")
+  fi
+
+  if $follow; then
+    kubectl logs "${args[@]}" -n "$NAMESPACE" "$pod" --tail="$nlines" --follow
+  else
+    kubectl logs "${args[@]}" -n "$NAMESPACE" "$pod" --tail="$nlines"
+  fi
+}
+
+do_exec() {
+  # Usage: exec <cmd...> [pod] [--container <name>]
+  if [[ $# -lt 1 ]]; then
+    echo "ERROR: exec requires a command. E.g.: /k8s exec curl http://localhost:8000/health" >&2
+    exit 1
+  fi
+
+  local wanted="" pod_arg=""
+  local tmp=("$@")
+
+  # Extract --container flag if present before the command.
+  for ((i = 0; i < ${#tmp[@]}; i++)); do
+    if [[ "${tmp[$i]}" == "--container" ]]; then
+      wanted="${tmp[$((i+1))]}"
+      unset 'tmp[i]' 'tmp[$((i+1))]'
+      tmp=("${tmp[@]}")  # re-index array
+      break
+    fi
+  done
+
+  # Remaining args after removing --container are: [cmd...] [pod-name]
+  local cmd=()
+  for arg in "${tmp[@]}"; do
+    # If it looks like a pod name (contains the component suffix) and we don't have one yet, try to claim it.
+    if [[ -z "$pod_arg" ]] && echo "$arg" | grep -qE '^(backend|frontend)-'; then
+      if kubectl get pod "$arg" -n "$NAMESPACE" &>/dev/null; then
+        pod_arg="$arg"
+      else
+        cmd+=("$arg")
+      fi
+    else
+      cmd+=("$arg")
+    fi
+  done
+
+  [[ -z "$pod_arg" ]] && pod_arg="$(pick_pod)"
+
+  local args=()
+  if [[ -n "$wanted" ]]; then
+    local cname
+    cname="$(resolve_container "$pod_arg" "$wanted")"
+    args+=(-c "$cname")
+  fi
+
+  kubectl exec -n "$NAMESPACE" "$pod_arg" "${args[@]}" -- "${cmd[@]}"
+}
+
+do_describe() {
+  shift  # remove "describe"
+  local pod="" wanted=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --container) wanted="$2"; shift 2 ;;
+      -*)          echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
+      *)           pod="$1"; shift ;;
+    esac
+  done
+
+  [[ -z "$pod" ]] && pod="$(pick_pod)"
+
+  kubectl describe pod -n "$NAMESPACE" "$pod"
+}
+
+do_port_forward() {
+  if [[ $# -lt 1 ]]; then
+    echo "ERROR: port-forward requires <service> <local:remote>. E.g.: /k8s port-forward backend 8080:8000" >&2
+    exit 1
+  fi
+
+  local svc="$1" ports="${2:-}"
+  shift 2
+
+  # Validate port format.
+  if ! echo "$ports" | grep -qE '^[0-9]+:[0-9]+$'; then
+    echo "ERROR: invalid port format '$ports'. Expected local:remote (e.g., 8080:8000)" >&2
+    exit 1
+  fi
+
+  # Verify the service exists.
+  if ! kubectl get svc "$svc" -n "$NAMESPACE" &>/dev/null; then
+    echo "ERROR: service '$svc' not found in namespace '$NAMESPACE'" >&2
+    exit 1
+  fi
+
+  local pod
+  pod="$(pick_pod)"
+
+  # Forward to the specific service.
+  kubectl port-forward -n "$NAMESPACE" "service/$svc" "$ports" "$@"
+}
+
+# ── main ───────────────────────────────────────────────────────────────────────
+
+check_cluster
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 0
+fi
+
+subcommand="$1"; shift
+
+case "$subcommand" in
+  logs)       do_logs "$@" ;;
+  exec)       do_exec "$@" ;;
+  describe)   do_describe "$@" ;;
+  port-forward) do_port_forward "$@" ;;
+  -h|--help|help) usage; exit 0 ;;
+  *) echo "ERROR: unknown subcommand '$subcommand'. Use --help for options." >&2; exit 1 ;;
+esac

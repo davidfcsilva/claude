@@ -1,8 +1,9 @@
 """Metrics for evaluation."""
 
-import torch
-from typing import Dict, List, Callable, Optional
 from abc import ABC, abstractmethod
+from typing import Callable, Dict, List, Optional
+
+import torch
 
 
 class Metric(ABC):

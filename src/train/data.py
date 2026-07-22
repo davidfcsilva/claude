@@ -1,8 +1,9 @@
 """Data utilities for loading and preprocessing datasets."""
 
+from typing import Dict, Optional
+
 import torch
-from torch.utils.data import DataLoader, Dataset, TensorDataset, Dataset
-from typing import Dict, Any, Optional
+from torch.utils.data import DataLoader, Dataset, TensorDataset
 
 
 def get_default_loader(

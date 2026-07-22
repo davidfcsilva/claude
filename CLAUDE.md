@@ -1,101 +1,69 @@
-# CLAUDE.md
+# Claude Code Repository Baseline
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Overview
 
-## Project Overview
+This repository is the **ultimate starting point** for any Claude-related project. Every `.claude/` feature (agents, skills, workflows, hooks, memory, templates) is pre-configured here as a reusable baseline.
 
-This is a machine learning project with a modular architecture designed for reproducible experiments. The project uses PyTorch as the primary deep learning framework with scikit-learn for traditional ML tasks.
+For the authoritative master instructions, see **[`.claude/CLAUDE.md`](.claude/CLAUDE.md)**.
 
-## Project Structure
+## Quick Start
 
-```
-.
-├── src/
-│   ├── models/          # Model definitions (base_model.py)
-│   ├── data/            # Data loading and preprocessing (base_dataset.py)
-│   ├── training/        # Training scripts (train.py)
-│   └── evaluation/      # Evaluation metrics (metrics.py)
-├── tests/
-│   └── unit/            # Unit tests for components
-├── config/              # YAML configuration files
-├── experiments/         # MLflow experiment logs
-├── README.md            # Project documentation
-├── requirements.txt     # Python dependencies
-├── Makefile             # Common commands
-└── .gitignore           # Git ignore patterns
-```
-
-## Common Commands
-
-### Install Dependencies
+### For a new project
 ```bash
-pip install -r requirements.txt
+# Copy the .claude directory to your project:
+cp -r .claude /path/to/your/project/
+
+# Then customize CLAUDE.md and any agents/skills for your specific needs.
 ```
 
-### Run Tests
-```bash
-pytest
-# or run a single test file:
-pytest tests/test_base_model.py -v
-```
+### Use `/init-project` 
+Run the `/init-project` slash command from `.claude/commands/init-project.md` to scaffold a complete Claude-enhanced repository in one step.
 
-### Train Model
-```bash
-python src/training/train.py --config config/default_config.yaml
-```
+## Directory Structure
 
-### Run All Commands via Make
-```bash
-make install    # Install dependencies
-make test       # Run all tests
-make train      # Train the model
-make clean      # Clean generated files
-```
+| Path | Purpose |
+|------|---------|
+| `.claude/CLAUDE.md` | Master instructions for all Claude Code features |
+| `.claude/AGENTS.md` | Quick-reference index of agent types |
+| `.claude/agents/` | Individual agent definitions (code-reviewer, planner, explorer, researcher) |
+| `.claude/skills/` | Reusable skill templates (init, review, security-review, verify, run, dataviz) |
+| `.claude/workflows/` | Multi-agent workflow templates (init-project, thorough-code-review, research-task, test-verify) |
+| `.claude/hooks/` | Hook patterns (stop, enter-exit) |
+| `.claude/commands/` | Custom slash command definitions |
+| `.claude/memory/` | Memory system templates and index |
+| `.claude/templates/` | Templates for creating new agents, skills, workflows, hooks |
+| `.claude/settings.local.json` | Permission presets and environment config |
 
-## Architecture Details
+## Feature Catalog
 
-### Model Layer (`src/models/`)
-- **BaseModel**: Abstract base class defining the interface for all models
-  - `forward()`: Perform forward pass
-  - `train()`: Set model to training mode
-  - `eval()`: Set model to evaluation mode
-  - `get_params()`: Get model parameters
+### Agents (4)
+- **code-reviewer** -- Diff review across effort levels (low/medium/high/max)
+- **planner** -- Implementation planning with trade-off analysis
+- **explorer** -- Read-only fan-out searches across codebases
+- **researcher** -- Deep web research with source verification
 
-### Data Layer (`src/data/`)
-- **BaseDataset**: Abstract base class for all datasets
-  - `__len__()`: Return number of samples
-  - `__getitem__()`: Get item at index
+### Skills (6)
+- **init** -- Initialize a new Claude-enhanced repo from this baseline
+- **review** -- Multi-dimensional code review workflow
+- **security-review** -- Security audit patterns
+- **verify** -- End-to-end flow verification
+- **run** -- Project app launch and observation
+- **dataviz** -- Data visualization guidelines
 
-### Training Layer (`src/training/`)
-- **BaseTrainer**: Abstract base class for training pipelines
-  - `train_epoch()`: Train for one epoch
-  - `evaluate()`: Evaluate model
-  - `save_checkpoint()`: Save model checkpoint
-  - `load_checkpoint()`: Load model checkpoint
+### Workflows (4)
+- **init-project** -- Scaffold a new repo from this baseline
+- **thorough-code-review** -- Multi-dimensional adversarial review
+- **research-task** -- Deep research with verification
+- **test-verify** -- Test execution + flow verification
 
-### Evaluation Layer (`src/evaluation/`)
-- **Accuracy**: Classification accuracy metric
-- **Loss**: Loss tracking metric
+### Hooks & Commands
+- **Stop hook** -- Long-running task stop conditions
+- **Enter/Exit hooks** -- Plan mode and worktree transitions
+- **/init-project** -- Custom scaffold command
 
-### Configuration (`config/`)
-- **default_config.yaml**: Training hyperparameters (learning rate, batch size, epochs, etc.)
-- MLflow settings for experiment tracking
-- Device configuration (cpu/cuda)
+## Composition Tips
 
-## Testing Strategy
-
-- Unit tests in `tests/` directory
-- Test fixtures in `conftest.py` if needed
-- Coverage reports with `pytest-cov`
-- Run with: `pytest tests/ -v --cov=src`
-
-## Environment Variables
-
-```bash
-export HF_HOME=~/.cache/huggingface
-export TORCH_HOME=~/.cache/torch
-```
-
-## MLflow Integration
-
-Experiments are logged to `./mlruns/` with tracking URI configured in `config/default_config.yaml`.
+1. **Single agent** for focused, self-contained tasks
+2. **Workflow** (Workflow tool) when you need deterministic orchestration across multiple agents
+3. **Skills** to encapsulate reusable patterns within a single agent call
+4. **Memory** files for persistent context across sessions

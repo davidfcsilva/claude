@@ -5,10 +5,9 @@ This agent manages git branches for local Development workflows.
 It can be invoked via MCP or command line.
 """
 
-import subprocess
 import json
-import sys
 import os
+import subprocess
 from datetime import datetime
 from typing import Optional
 
@@ -57,8 +56,8 @@ class GitBranchAgent:
     def list_branches(self) -> list:
         """List all branches with stats."""
         code, stdout, _ = self._run(["--list", "--format",
-            f'%(refname:short) \t%(objectname:short) \t%ad %D',
-            f'--sort=-committerdate', '--date=short'])
+            '%(refname:short) \t%(objectname:short) \t%ad %D',
+            '--sort=-committerdate', '--date=short'])
 
         if code != 0:
             return []

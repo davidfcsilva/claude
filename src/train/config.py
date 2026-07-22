@@ -1,9 +1,8 @@
 """Configuration management for training."""
 
 import json
-import os
-from dataclasses import dataclass, asdict
-from typing import Any, Optional
+from dataclasses import asdict, dataclass
+from typing import Optional
 
 
 @dataclass
@@ -66,12 +65,19 @@ class Config:
         Load configuration from file.
 
         Args:
-            path: Path to config file
+            path: Path to config file (supports JSON and YAML)
         """
+        import yaml
+
         path = path or self.config_path
         if path is not None:
             with open(path, 'r') as f:
-                data = json.load(f)
+                # Try YAML first, fall back to JSON
+                try:
+                    data = yaml.safe_load(f)
+                except yaml.YAMLError:
+                    f.seek(0)
+                    data = json.load(f)
             self._update_from_dict(data)
 
     def _update_from_dict(self, data: dict):
@@ -156,18 +162,15 @@ class Config:
         Args:
             other: Other config to merge
         """
-        if other.model:
-            for k, v in other.model.__dict__.items():
-                if hasattr(self.model, k):
-                    setattr(self.model, k, v)
-        if other.optimizer:
-            for k, v in other.optimizer.__dict__.items():
-                if hasattr(self.optimizer, k):
-                    setattr(self.optimizer, k, v)
-        if other.training:
-            for k, v in other.training.__dict__.items():
-                if hasattr(self.training, k):
-                    setattr(self.training, k, v)
+        for k, v in other.model.__dict__.items():
+            if hasattr(self.model, k):
+                setattr(self.model, k, v)
+        for k, v in other.optimizer.__dict__.items():
+            if hasattr(self.optimizer, k):
+                setattr(self.optimizer, k, v)
+        for k, v in other.training.__dict__.items():
+            if hasattr(self.training, k):
+                setattr(self.training, k, v)
 
     def __repr__(self) -> str:
         """

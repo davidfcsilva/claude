@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Dojo</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000; overflow:hidden; cursor:none; font-family:monospace; }
+#game { width:100vw; height:calc(100vh - 60px); display:block; }
+#hud { position:fixed; bottom:0; left:0; right:0; height:60px; background:#111; border-top:2px solid #444; display:flex; align-items:center; justify-content:space-around; z-index:10; color:#c00; font-size:20px; }
+.hi { display:flex; gap:6px; align-items:center; }
+.hl { color:#555; font-size:12px; }
+#hb-bg { width:100px; height:12px; background:#333; border:1px solid #555; }
+#hb { height:100%; background:linear-gradient(90deg,#f00,#ff0); transition:width .2s; }
+#ac { font-size:30px; color:#fc0; }
+#sc { color:#fff; font-size:24px; }
+#rf { width:50px; height:40px; background:#211; border:1px solid #600; color:#f88; cursor:pointer; font-family:monospace; font-size:18px; }
+#rf:hover { background:#322; }
+#cr { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); color:rgba(255,255,255,.4); font-size:28px; z-index:10; pointer-events:none; }
+#wp { position:fixed; bottom:70px; left:50%; transform:translateX(-50%); z-index:5; pointer-events:none; font-size:100px; }
+#mm { position:fixed; top:8px; right:8px; z-index:10; border:1px solid #444; background:#000; }
+#ov { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,.9); z-index:200; color:#fff; font-size:24px; cursor:pointer; }
+#ov h1 { font-size:48px; color:#c00; margin-bottom:20px; }
+#ov p { margin:4px 0; color:#aaa; }
+#ov .start { margin-top:30px; padding:12px 40px; background:#c00; color:#fff; border:none; font-family:monospace; font-size:24px; cursor:pointer; animation:pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.5} }
+#fb { width:60px; height:46px; background:#111; border:1px solid #333; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="mm" width="140" height="140"></canvas>
+<div id="cr">+</div>
+<div id="wp">&#x1F52B;</div>
+<div id="hud">
+ <div class="hi"><span class="hl">HP</span><div id="hb-bg"><div id="hb" style="width:100%"></div></div><span id="ht">100</span></div>
+ <div class="hi"><span class="hl">AMMO</span><span id="ac">30</span></div>
+ <div class="hi"><span class="hl">ENEMIES</span><span id="ec">0</span></div>
+ <div class="hi"><span class="hl">SCORE</span><span id="sc">0</span></div>
+ <button id="rf" onclick="restart()">R</button>
+ <canvas id="fb" width="60" height="46"></canvas>
+</div>
+<div id="ov">
+ <h1>&#x1F525; DOJO &#x1F525;</h1>
+ <p>WASD — Move | Mouse — Look</p>
+ <p>Space — Shoot | Q/E — Strafe</p>
+ <button class="start" id="sb">START GAME</button>
+</div>
+<script>
+'use strict';
+const G=document.getElementById('game'), ctx=G.getContext('2d');
+const MW=140, MH=140, mc=document.getElementById('mm').getContext('2d');
+const Fb=document.getElementById('fb'), fc=Fb.getContext('2d');
+
+// Map
+const M=[[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+[1,0,0,2,2,2,0,0,0,0,0,0,0,3,3,3,0,0,0,1],
+[1,0,0,2,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,1],
+[1,0,0,2,0,0,0,0,0,4,4,4,0,0,0,3,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,4,0,4,0,0,0,0,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,4,0,4,0,0,0,0,0,5,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,0,1],
+[1,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,5,0,1],
+[1,0,0,0,0,0,3,3,0,0,0,0,0,0,2,2,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,1],
+[1,0,4,4,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,1],
+[1,0,4,4,0,0,0,0,5,5,5,5,0,0,0,0,0,0,0,1],
+[1,0,0,0,0,0,0,0,5,0,0,5,0,0,0,3,3,0,0,1],
+[1,0,0,0,0,0,0,0,5,0,0,5,0,0,0,3,3,0,0,1],
+[1,0,0,0,4,4,0,0,5,0,0,5,0,0,0,0,0,0,0,1],
+[1,0,0,0,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]];
+const MH_=M.length, MW_=M[0].length;
+const WC={1:[120,40,40],2:[40,80,120],3:[100,100,50],4:[80,60,120],5:[120,70,40]};
+
+let P={x:1.5,y:1.5,a:0,hp:100,am:30,sc:0,ldt:null};
+const FOV=Math.PI/3, MS=0.04, RS=0.03;
+let en=[],go=false,gw=false,shot=false,sd=0,wf=0,ff=0,wb=0,bob=0,moved=false;
+
+function mkE(){en=[];
+[[4.5,9.5],[12.5,4.5],[16.5,7.5],[7.5,13.5],[14.5,11.5],[17.5,16.5],[3.5,17.5],
+[9.5,2.5],[15.5,18.5],[1.5,14.5],[10.5,7.5],[18.5,1.5]].forEach(p=>{
+en.push({x:p[0],y:p[1],hp:3,type:Math.random()<.4?'fast':'normal',alive:true,sp:Math.random()<.4?.018:.008,ht:0});})}
+mkE();
+
+const K={};
+document.onkeydown=e=>{K[e.key.toLowerCase()]=true;e.preventDefault();};
+G.onclick=()=>G.requestPointerLock&&G.requestPointerLock();
+let started=false;
+document.getElementById('sb').onclick=()=>{document.getElementById('ov').style.display='none';started=true;G.requestPointerLock&&G.requestPointerLock();};
+
+function ray(ag){
+const tg=Math.tan(ag);
+if(Math.abs(tg)<1e-6||Math.abs(Math.cos(ag))<1e-6)return{d:Infinity,w:0};
+let hd=Infinity,hw=0;
+for(let y=0;y<MH_;y++){const x1=P.x+(y-P.y)/tg;if(x1<-2||x1>MW_+2)continue;const xi=Math.floor(x1),yi=y;if(yi>=0&&yi<MH_&&xi>=0&&xi<MW_){const d=(y-P.y)/Math.sin(ag);if(d>.001&&M[yi][xi]>0&&d<hd){hd=Math.abs(d);hw=M[yi][xi]}}}
+let vd=Infinity,vw=0;
+for(let x=0;x<MW_;x++){const y1=P.y+(x-P.x)*tg;if(y1<-2||y1>MH_+2)continue;const xi=x,yi=Math.floor(y1);if(yi>=0&&yi<MH_&&xi>=0&&xi<MW_){const d=(x-P.x)/Math.cos(ag);if(d>.001&&M[yi][xi]>0&&d<vd){vd=Math.abs(d);vw=M[yi][xi]}}}
+return hd<=vd?{d:hd,w:hw}: {d:vd,w:vw};}
+
+let zb=[];
+function render(){
+const w=G.width, h=G.height;
+if(w<=0||h<=0)return;
+ctx.clearRect(0,0,w,h);
+// Ceiling
+ctx.fillStyle='#14141e';ctx.fillRect(0,0,w,h/2);
+// Floor
+ctx.fillStyle='#28231e';ctx.fillRect(0,h/2,w,h/2);
+zb=new Array(w);
+for(let c=0;c<w;c++){
+const ra=P.a-FOV/2+(c/w)*FOV, hit=ray(ra), pd=hit.d*Math.cos(ra-P.a);
+zb[c]=pd;
+if(hit.w===0)continue;
+const wh=Math.min(h,h/pd>0?h/pd:9999), wt=(h-wh)/2, cb=WC[hit.w]||[128,128,128];
+let sh=Math.max(.15,1-pd/16);if(hit.w<=0)sh=.1;
+let r=cb[0]*sh|0,g=cb[1]*sh|0,b=cb[2]*sh|0;
+if(Math.round(h.d)%2===0){r=r*90/100|0;g=g*90/100|0;b=b*90/100|0;}
+ctx.fillStyle=`rgb(${r},${g},${b})`;ctx.fillRect(c,wt,1,wh);
+// Brick lines
+const bl=Math.max(1,wh/8);for(let r2=0;r2<8;r2++){if(r2%2===0){ctx.fillStyle=`rgba(0,0,0,.25)`;ctx.fillRect(c,wt+r2*bl,1,Math.min(bl,wh))}}}}
+
+function drawSprites(){
+const s=[];en.forEach(e=>{if(!e.alive)return;const dx=e.x-P.x,dy=e.y-P.y;
+s.push({...e,d:Math.max(.1,Math.sqrt(dx*dx+dy*dy)),dx,dy});});
+s.sort((a,b)=>b.d-a.d);
+s.forEach(sp=>{let ang=Math.atan2(sp.dy,sp.dx)-P.a;
+while(ang>Math.PI)ang-=2*Math.PI;while(ang<-Math.PI)ang+=2*Math.PI;
+if(Math.abs(ang)>FOV*.6)return;
+const sx=w/2+(ang/(FOV/2))*(w/2),sh=Math.min(h,h/sp.d),sw=sh*.5,sy=(h-sh)/2;
+const lc=Math.max(0,Math.floor(sx-sw/2)),rc=Math.min(w-1,Math.floor(sx+sw/2));
+let vis=false;for(let c=lc;c<=rc;c++)if(zb[c]>sp.d){vis=true;break;}
+if(!vis)return;
+const sh2=Math.max(.2,1-sp.d/14),hc=sp.type==='fast'?(sp.ht>0?[255,255,100]:[180,50,50]):(sp.ht>0?[150,150,255]:[60,80,50]);
+const ec=sp.type==='fast'?[255,255,0]:[255,50,50];
+ctx.fillStyle=`rgba(${hc[0]*sh2|0},${hc[1]*sh2|0},${hc[2]*sh2|0},${sh2})`;
+ctx.fillRect(sx-sw*.3,sy+sh*.4,sw*.6,sh*.4);
+ctx.beginPath();ctx.arc(sx,sy+sh*.35,sw*.22,0,Math.PI*2);ctx.fill();
+ctx.fillStyle=`rgba(${ec[0]},${ec[1]},${ec[2]},${sh2})`;const es=Math.max(2,sw*.06);
+ctx.beginPath();ctx.arc(sx-sw*.1,sy+sh*.35,es,0,Math.PI*2);ctx.arc(sx+sw*.1,sy+sh*.35,es,0,Math.PI*2);ctx.fill();
+// Mouth ctx.strokeStyle=`rgba(30,10,10,${sh2})`;ctx.lineWidth=Math.max(1,sw*.04);ctx.beginPath();ctx.arc(sx,sy+sh*.35+sw*.2,sw*.2,0,Math.PI);ctx.stroke();
+// Hit flash
+if(sp.ht>0){ctx.fillStyle=`rgba(255,255,100,${sp.ht*.1})`;ctx.beginPath();ctx.arc(sx,sy+sh*.35,sw*.3,0,Math.PI*2);ctx.fill();}};}
+
+function drawFace(){
+fc.clearRect(0,0,60,46);const p=P.hp;const sk=p>15?'#e8b896':'#a08070';ds=p>15?'#c89870':'#807060';
+fc.fillStyle='#333';fc.fillRect(0,0,60,46);fc.fillStyle='#222';fc.fillRect(3,3,54,40);
+fc.fillStyle=sk;fc.fillRect(12,10,36,36);fc.fillStyle='#5a3a1a';fc.fillRect(12,10,36,5);fc.fillRect(10,8,6,4);fc.fillRect(44,8,6,4);
+const ey=24;
+if(p<=0){fc.fillStyle='#f00';fc.font='12px monospace';fc.fillText('X',18,ey+5);fc.fillText('X',40,ey+5);fc.fillStyle='#400';fc.fillRect(26,38,10,3);return;}
+fc.fillStyle='#fff';fc.fillRect(20,ey-1,7,5);fc.fillRect(39,ey-1,7,5);
+const pc=p>70?'#3a2510':p>30?'#cc3020':'#ff0000',ps=Math.max(1,4-(100-p)/30);
+const fda=P.a*180/Math.PI,lo=Math.round(Math.sin(fda*.1)*1);
+fc.fillStyle=pc;fc.fillRect(22+lo,ey,ps,ps+1);fc.fillRect(41+lo,ey,ps,ps+1);
+fc.fillStyle='#5a3a1a';
+if(p>70){fc.fillRect(19,ey-4,8,2);fc.fillRect(38,ey-4,8,2);}
+else if(p>40){fc.fillRect(19,ey-3,5,2);fc.fillRect(38,ey-3,5,2);fc.fillRect(25,ey-1,3,2);fc.fillRect(41,ey-1,3,2);}
+else if(p>15){fc.fillRect(18,ey-1,5,2);fc.fillRect(23,ey+1,3,2);fc.fillRect(41,ey+1,3,2);fc.fillRect(37,ey-1,6,2);fc.fillStyle='#8a5a3a';fc.fillRect(31,ey+2,2,3);fc.fillRect(34,ey+2,2,3);}
+else{fc.fillStyle='#8a5a3a';fc.fillRect(18,ey,20,1);fc.fillRect(37,ey,6,1);}
+fc.fillStyle=ds;fc.fillRect(33,ey+4,2,5);fc.fillRect(33,ey+7,4,1);
+const my=36;fc.fillStyle='#a04040';fc.fillRect(26,my,10,1);fc.fillRect(26,my+5,10,1);
+if(p>70){for(let i=0;i<4;i++){fc.fillStyle='#f88';fc.fillRect(27+i*2,my+1+(i%2===0?0:-1),2,2);}}
+else if(p>40){for(let i=0;i<4;i++){fc.fillStyle='#600';fc.fillRect(27+i*2,my+1,2,2);}}
+else if(p>15){fc.fillStyle='#800';fc.fillRect(25,my+1,12,3);fc.fillStyle='#f88';fc.fillRect(29,my+1,5,1);}
+else{fc.fillStyle='#600';fc.fillRect(26,my+1,10,4);}
+const ba=Math.max(0,Math.min(1,(100-p)/50));
+if(ba>.1){fc.fillStyle=`rgba(180,20,20,${ba})`;for(let i=0;i<Math.ceil(ba*5);i++){const bx=14+((i*7+3)%42),by=12+((i*11+5)%28);fc.fillRect(bx,by,2,3+(i%3)*2);}}
+if(ba>.3){const br=`rgba(80,20,60,${(ba-.3)*.5})`;fc.fillStyle=br;fc.fillRect(12,10,7,36);fc.fillRect(47,10,7,36);}
+if(p>30&&p<=70&&Math.sin(Date.now()/500)>.5){fc.fillStyle='#8cf';fc.fillRect(46,14,2,4);}
+}
+
+function update(){
+if(go||gw)return;const fwd=K.w||K.arrowup,bck=K.s||K.arrowdown;let dx=0,dy=0;
+if(K.arrowleft)P.a-=RS;if(K.arrowright)P.a+=RS;
+if(fwd){dx+=Math.cos(P.a)*MS;dy+=Math.sin(P.a)*MS;moved=true;}
+if(bck){dx-=Math.cos(P.a)*MS;dy-=Math.sin(P.a)*MS;moved=true;}
+if(K.q){dx+=Math.cos(P.a-Math.PI/2)*MS;dy+=Math.sin(P.a-Math.PI/2)*MS;moved=true;}
+if(K.e){dx+=Math.cos(P.a+Math.PI/2)*MS;dy+=Math.sin(P.a+Math.PI/2)*MS;moved=true;}
+const mg=.15,nx=P.x+dx,ny=P.y+dy;
+if(Math.abs(dx)>.0001&&M[Math.floor(P.y)][Math.floor(nx+mg*Math.sign(dx))]===0&&ny>=0&&ny<MH_)P.x=nx;
+if(Math.abs(dy)>.0001&&M[Math.floor(ny+mg*Math.sign(dy))][Math.floor(P.x)]===0&&nx>=0&&nx<MW_)P.y=ny;
+if(moved)wb+=.12;if(ff>0)ff--;if(wf>0)wf--;if(sd>0)sd--;
+if((K[' ']||shot)&&P.am>0&&!go&&!gw){P.am--;shot=true;ff=5;wf=10;document.getElementById('ac').textContent=P.am;setTimeout(()=>{shot=false},150);
+en.forEach(e=>{if(!e.alive)return;const d2x=e.x-P.x,d2y=e.y-P.y,d2=Math.sqrt(d2x*d2x+d2y*d2y);
+let ra2=Math.atan2(d2y,d2x)-P.a;while(ra2>Math.PI)ra2-=2*Math.PI;while(ra2<-Math.PI)ra2+=2*Math.PI;
+if(Math.abs(ra2)<.08&&d2<15){let blk=false;const st=Math.ceil(d2*8);for(let i=1;i<=st;i++){const t=i/st,cx=P.x+d2x*t,cy=P.y+d2y*t;if(cy>=0&&cy<MH_&&cx>=0&&cx<MW_&&M[Math.floor(cy)][Math.floor(cx)]>0){blk=true;break;}}
+if(!blk){e.hp--;e.ht=4;if(e.hp<=0)e.alive=false,P.sc+=e.type==='fast'?200:100;}}});}
+let ac=0;en.forEach(e=>{if(!e.alive)return;ac++;if(e.ht>0)e.ht--;
+const d3x=P.x-e.x,d3y=P.y-e.y,d3=Math.sqrt(d3x*d3x+d3y*d3y);
+if(d3<12&&d3>.3){const mx=(d3x/d3)*e.sp,my2=(d3y/d3)*e.sp;const nex=e.x+mx,ney=e.y+my2;
+if(nex>=0&&nex<MW_&&ney>=0&&ney<MH_&&M[Math.floor(e.y)][Math.floor(nex)]===0)e.x=nex;
+if(nex>=0&&nex<MW_&&ney>=0&&ney<MH_&&M[Math.floor(ney)][Math.floor(e.x)]===0)e.y=ney;}
+if(d3<.5&&d3>.01){P.hp-=e.type==='fast'?15:8;P.ldt=Date.now();e.x-=d3x/d3*.3;e.y-=d3y/d3*.3;}});
+if(P.hp<=0&&!go){go=true;const ov=document.getElementById('ov');ov.style.display='flex';
+document.getElementById('ov').innerHTML='<h1 style="color:#f00">YOU DIED</h1><p>Score: '+P.sc+'</p><button class="start" onclick="restart()">RESTART</button>';}
+if(ac===0&&!gw){gw=true;const ov=document.getElementById('ov');ov.style.display='flex';
+document.getElementById('ov').innerHTML='<h1 style="color:#0f0">VICTORY!</h1><p>Score: '+P.sc+'</p><p>All demons defeated!</p><button class="start" onclick="restart()">PLAY AGAIN</button>';}
+if((go||gw)&&K.r){restart();K.r=false;}
+document.getElementById('hb').style.width=Math.max(0,P.hp)+'%';document.getElementById('ht').textContent=Math.max(0,P.hp);
+document.getElementById('ec').textContent=ac;document.getElementById('sc').textContent=P.sc;}
+
+function drawMM(){const sc=6;mc.fillStyle='rgba(0,0,0,.85)';mc.fillRect(0,0,MW_,MH_);
+for(let y=0;y<MH_;y++)for(let x=0;x<MW_;x++){if(M[y][x]>0){const c=WC[M[y][x]];mc.fillStyle=`rgb(${c[0]},${c[1]},${c[2]})`;}else mc.fillStyle='#1a1a1a';mc.fillRect((x-P.x)*sc+MW_/2,(y-P.y)*sc+MH_/2,sc-1,sc-1);}
+en.forEach(e=>{if(!e.alive)return;const px=(e.x-P.x)*sc+MW_/2,py=(e.y-P.y)*sc+MH_/2;mc.fillStyle=e.type==='fast'?'#f44':'#4f4';mc.beginPath();mc.arc(px,py,2,0,Math.PI*2);mc.fill();});
+mc.fillStyle='#ff0';mc.beginPath();mc.arc(MW_/2,MH_/2,3,0,Math.PI*2);mc.fill();
+mc.strokeStyle='#ff0';mc.lineWidth=2;mc.beginPath();mc.moveTo(MW_/2,MH_/2);mc.lineTo(MW_/2+Math.cos(P.a)*14,MH_/2+Math.sin(P.a)*14);mc.stroke();}
+
+let lt=0;
+function loop(t){const dt=(t-lt)/16.67;lt=t;if(!started){requestAnimationFrame(loop);return;}try{update();render();drawMM();drawFace();}catch(e){console.error(e);}requestAnimationFrame(loop);}
+
+G.width=Math.max(800,window.innerWidth);G.height=Math.max(400,window.innerHeight-60);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

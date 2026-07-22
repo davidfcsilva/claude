@@ -1,0 +1,174 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: argocddemo
+  labels:
+    app.kubernetes.io/name: argocddemo
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocddemo
+      app.kubernetes.io/component: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argocddemo
+        app.kubernetes.io/component: backend
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: [argocddemo]
+                    - key: app.kubernetes.io/component
+                      operator: In
+                      values: [backend]
+                topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: pip-install
+          image: docker.io/python:3.12-slim
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              pip install --quiet --cache-dir=/pip-cache
+              fastapi==0.115.6 uvicorn[standard]==0.34.0
+              prometheus-client==0.21.1
+              --target=/pip-lib
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: TMPDIR
+              value: /tmp
+          volumeMounts:
+            - name: pip-lib
+              mountPath: /pip-lib
+            - name: pip-cache
+              mountPath: /pip-cache
+            - name: tmp-dir
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      containers:
+        - name: fastapi
+          image: docker.io/python:3.12-slim
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - exec python -m uvicorn main:app --host 0.0.0.0 --port 8000
+          env:
+            - name: PYTHONPATH
+              value: "/pip-lib:/app"
+            - name: TMPDIR
+              value: /tmp
+          workingDir: /app
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: app-code
+              mountPath: /app/main.py
+              subPath: main.py
+            - name: pip-lib
+              mountPath: /pip-lib
+            - name: tmp-dir
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: app-code
+          configMap:
+            name: backend-app-config
+        - name: pip-lib
+          emptyDir: {}
+        - name: pip-cache
+          emptyDir: {}
+        - name: tmp-dir
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: argocddemo
+  labels:
+    app.kubernetes.io/name: argocddemo
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  internalTrafficPolicy: Cluster
+  selector:
+    app.kubernetes.io/name: argocddemo
+    app.kubernetes.io/component: backend
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http

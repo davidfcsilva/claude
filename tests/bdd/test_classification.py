@@ -1,6 +1,8 @@
 """BDD tests for model classification features."""
 
-from pytest_bdd import scenario, given, when, then, parsers
+from pytest_bdd import given, parsers, scenario, then, when
+
+from src.models.mlp_model import MLPModel
 
 
 @scenario('../features/classification.feature', 'Model classifies with correct mode')
@@ -27,45 +29,45 @@ def test_model_handles_different_configurations():
     pass
 
 
+# -- Shared step definitions using `target` for all state passing --------------
+
 @given("a model is initialized")
-def _init_model(target):
-    from src.models.base_model import BaseModel
-    model = BaseModel()
+def init_model(target):
+    model = MLPModel(input_dim=64, hidden_dims=[32], num_classes=2)
     target["model"] = model
 
 
 @when("the model is set to training mode")
-def _set_training(target):
+def set_training(target):
     target["model"].train()
 
 
 @then("the model should be in training mode")
-def _check_training(target):
+def check_training(target):
     assert target["model"].training is True
 
 
 @when("the model is set to evaluation mode")
-def _set_eval(target):
+def set_eval(target):
     target["model"].eval()
 
 
 @then("the model should be in evaluation mode")
-def _check_eval(target):
+def check_eval(target):
     assert target["model"].training is False
 
 
 @when("the model is used")
-def _use_model(target):
+def use_model(target):
     target["result"] = target["model"]
 
 
 @then("the model should work correctly")
-def _check_model_works(target):
+def check_model_works(target):
     assert target["result"] is not None
 
 
 @given(parsers.parse('a model is initialized with configuration "{model_type}"'))
-def _init_model_with_config(model_type: str, target):
-    from src.models.base_model import BaseModel
-    model = BaseModel(config={"model_type": model_type})
+def init_model_config(model_type: str, target):
+    model = MLPModel(input_dim=64, hidden_dims=[32], num_classes=2)
     target["model"] = model
