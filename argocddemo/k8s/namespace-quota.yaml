@@ -21,8 +21,6 @@ spec:
     limits.cpu: "4"
     limits.memory: 4Gi
     pods: "20"
-    services.loadbalancer: "1"
-    services.nodeport: "0"
     configmaps: "20"
     secrets: "10"
     persistentvolumeclaims: "5"
