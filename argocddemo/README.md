@@ -7,7 +7,7 @@ FastAPI + nginx demo app deployed via ArgoCD to Kubernetes with production-grade
 ```
 LoadBalancer (192.168.51.206:80)
   └── frontend Service → nginx pods [HPA: 2-8]
-         ├── /        → landing page (rocket SVG)
+         ├── /        → landing page (festive tree SVG)
          ├── /health  → backend health check
          ├── /api/*   → backend API proxy
          └── /reload  → hot-reload endpoint

@@ -21,7 +21,7 @@ spec:
     metadata:
       annotations:
         checksum/nginx-config: "b7c2d4e9"  # bump when nginx config changes
-        checksum/nginx-static: "f3e8b1c7"  # bump when static content changes
+        checksum/nginx-static: "a9f2d4e1"  # bump when static content changes
       labels:
         app.kubernetes.io/name: argocddemo
         app.kubernetes.io/component: frontend
