@@ -1,0 +1,775 @@
+#!/usr/bin/env bash
+# k8s-healthcheck — CLI for verifying the health of the ArgoCD demo application.
+# Subcommands: full, pods, endpoints, probes, resources, observability, summary
+# All operations default to namespace "argocddemo".
+#
+# Zero external interpreters — all JSON extraction uses kubectl -o jsonpath.
+
+set -euo pipefail
+
+# ── configurable defaults ─────────────────────────────────────────────────────
+
+NAMESPACE="${ARGOCD_NAMESPACE:-argocddemo}"
+IP="${ARGOCD_DEMO_IP:-192.168.51.206}"
+OBS_NAMESPACE="${OBS_NAMESPACE:-observability}"
+
+FRONTEND_REPLICAS=2
+BACKEND_REPLICAS=2
+
+# ── status tracking ───────────────────────────────────────────────────────────
+
+CRITICAL_FAILURES=0
+WARNINGS=0
+
+pass()  { echo "  ✅ $*"; }
+fail()  { echo "  ❌ $*"; CRITICAL_FAILURES=$((CRITICAL_FAILURES + 1)); }
+warn()  { echo "  ⚠️  $*"; WARNINGS=$((WARNINGS + 1)); }
+
+separator() {
+  echo "═══════════════════════════════════════════════════════════"
+}
+
+section() {
+  echo ""
+  separator
+  echo "  $*"
+  separator
+  echo ""
+}
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+usage() {
+  cat <<EOF
+Usage: k8s-healthcheck [subcommand]
+
+Subcommands:
+  full            Run all checks (default).
+  pods            Check pod status in the '$NAMESPACE' namespace.
+  endpoints       Curl the health endpoints on $IP.
+  probes          Verify probe configuration on each pod.
+  resources       Check HPA, PDB, NetworkPolicies, ResourceQuota, LimitRange.
+  observability   Check if the observability stack (Prometheus + Grafana) is running.
+  summary         Print a condensed one-line-per-component status.
+
+Environment variables:
+  ARGOCD_DEMO_IP      Target IP address (default: $IP)
+  ARGOCD_NAMESPACE    Application namespace (default: $NAMESPACE)
+  OBS_NAMESPACE       Observability namespace (default: $OBS_NAMESPACE)
+
+Options:
+  -h, --help          Show this help message.
+
+Examples:
+  k8s-healthcheck                      # Run all checks
+  k8s-healthcheck pods                 # Pod status only
+  k8s-healthcheck endpoints            # HTTP endpoint checks
+  k8s-healthcheck probes               # Probe configuration audit
+  k8s-healthcheck resources            # Resource governance check
+  k8s-healthcheck observability        # Observability stack check
+  k8s-healthcheck summary              # Condensed one-liner per component
+  ARGOCD_DEMO_IP=10.0.0.5 k8s-healthcheck endpoints   # Override target IP
+EOF
+}
+
+# Check if the Kubernetes cluster is reachable.
+check_cluster() {
+  if ! kubectl cluster-info &>/dev/null; then
+    echo "ERROR: cannot reach Kubernetes cluster." >&2
+    echo "" >&2
+    echo "Troubleshoot:" >&2
+    echo "  1. Ensure your cluster is running (Docker Desktop, kind, minikube, etc.)" >&2
+    echo "  2. Verify kubeconfig: kubectl config current-context" >&2
+    exit 3
+  fi
+}
+
+# ── subcommands ────────────────────────────────────────────────────────────────
+
+do_pods() {
+  section "Pod Status — namespace: $NAMESPACE"
+
+  # Check if namespace exists
+  if ! kubectl get namespace "$NAMESPACE" &>/dev/null; then
+    fail "Namespace '$NAMESPACE' does not exist."
+    return 0
+  fi
+
+  # ── Frontend pods ──────────────────────────────────────────────────────
+  echo "--- Frontend Pods ---"
+  local fe_desired fe_current fe_ready
+  fe_desired="$(kubectl get deployment frontend -n "$NAMESPACE" \
+    -o jsonpath='{.spec.replicas}' 2>/dev/null)" || true
+  fe_current="$(kubectl get deployment frontend -n "$NAMESPACE" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" || true
+  fe_ready="${fe_current:-0}"
+
+  if [[ -z "$fe_desired" ]]; then
+    fail "Frontend deployment not found in namespace '$NAMESPACE'."
+  else
+    echo "  Desired: $fe_desired | Ready: $fe_ready"
+    if [[ "$fe_ready" -ge "$FRONTEND_REPLICAS" ]]; then
+      pass "Frontend replica count OK ($fe_ready/$fe_desired ready)."
+    else
+      fail "Frontend replicas insufficient ($fe_ready/$fe_desired ready, expected >=$FRONTEND_REPLICAS)."
+    fi
+  fi
+
+  # Check individual frontend pod states
+  local fe_pod_statuses
+  fe_pod_statuses="$(kubectl get pods -n "$NAMESPACE" \
+    -l app.kubernetes.io/component=frontend \
+    --no-headers -o custom-columns=':status.phase' 2>/dev/null)" || true
+
+  if [[ -n "$fe_pod_statuses" ]]; then
+    local fe_running=0 fe_issues=""
+    while IFS= read -r phase; do
+      if [[ "$phase" == "Running" ]]; then
+        fe_running=$((fe_running + 1))
+      else
+        fe_issues="$fe_issues $phase"
+      fi
+    done <<< "$fe_pod_statuses"
+
+    if [[ $fe_running -lt 1 && -z "$fe_issues" ]]; then
+      fail "No frontend pods found."
+    elif [[ -n "$fe_issues" ]]; then
+      warn "Frontend pods not in Running state:$fe_issues"
+    fi
+  else
+    fail "Cannot query frontend pod statuses."
+  fi
+
+  # Check for CrashLoopBackOff / Pending frontend pods
+  local fe_bad
+  fe_bad="$(kubectl get pods -n "$NAMESPACE" \
+    -l app.kubernetes.io/component=frontend \
+    --no-headers -o custom-columns=':status.containerStatuses[0].state.waiting.reason' 2>/dev/null)" || true
+
+  if echo "$fe_bad" | grep -qiE 'CrashLoopBackOff|Error|ImagePull'; then
+    fail "Frontend pod(s) in bad state: $(echo "$fe_bad" | tr '\n' ', ')"
+  fi
+
+  # ── Backend pods ───────────────────────────────────────────────────────
+  echo ""
+  echo "--- Backend Pods ---"
+  local be_desired be_current be_ready
+  be_desired="$(kubectl get deployment backend -n "$NAMESPACE" \
+    -o jsonpath='{.spec.replicas}' 2>/dev/null)" || true
+  be_current="$(kubectl get deployment backend -n "$NAMESPACE" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" || true
+  be_ready="${be_current:-0}"
+
+  if [[ -z "$be_desired" ]]; then
+    fail "Backend deployment not found in namespace '$NAMESPACE'."
+  else
+    echo "  Desired: $be_desired | Ready: $be_ready"
+    if [[ "$be_ready" -ge "$BACKEND_REPLICAS" ]]; then
+      pass "Backend replica count OK ($be_ready/$be_desired ready)."
+    else
+      fail "Backend replicas insufficient ($be_ready/$be_desired ready, expected >=$BACKEND_REPLICAS)."
+    fi
+  fi
+
+  local be_pod_statuses
+  be_pod_statuses="$(kubectl get pods -n "$NAMESPACE" \
+    -l app.kubernetes.io/component=backend \
+    --no-headers -o custom-columns=':status.phase' 2>/dev/null)" || true
+
+  if [[ -n "$be_pod_statuses" ]]; then
+    local be_running=0 be_issues=""
+    while IFS= read -r phase; do
+      if [[ "$phase" == "Running" ]]; then
+        be_running=$((be_running + 1))
+      else
+        be_issues="$be_issues $phase"
+      fi
+    done <<< "$be_pod_statuses"
+
+    if [[ $be_running -lt 1 && -z "$be_issues" ]]; then
+      fail "No backend pods found."
+    elif [[ -n "$be_issues" ]]; then
+      warn "Backend pods not in Running state:$be_issues"
+    fi
+  else
+    fail "Cannot query backend pod statuses."
+  fi
+
+  local be_bad
+  be_bad="$(kubectl get pods -n "$NAMESPACE" \
+    -l app.kubernetes.io/component=backend \
+    --no-headers -o custom-columns=':status.containerStatuses[0].state.waiting.reason' 2>/dev/null)" || true
+
+  if echo "$be_bad" | grep -qiE 'CrashLoopBackOff|Error|ImagePull'; then
+    fail "Backend pod(s) in bad state: $(echo "$be_bad" | tr '\n' ', ')"
+  fi
+
+  # ── Ready check (condition) ────────────────────────────────────────────
+  echo ""
+  echo "--- Deployment Conditions ---"
+  for comp in frontend backend; do
+    local available
+    available="$(kubectl get deployment "$comp" -n "$NAMESPACE" \
+      -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null)" || true
+
+    if [[ "$available" == "True" ]]; then
+      pass "$comp deployment is Available."
+    else
+      fail "$comp deployment is NOT Available (status=$available)."
+    fi
+  done
+
+  # ── All pods table ─────────────────────────────────────────────────────
+  echo ""
+  echo "--- All Pods in $NAMESPACE ---"
+  kubectl get pods -n "$NAMESPACE" -o wide 2>/dev/null || \
+    fail "Cannot list pods in namespace '$NAMESPACE'."
+}
+
+do_endpoints() {
+  section "Endpoint Checks — target: $IP"
+
+  local curl_opts="-sf --max-time 10 --connect-timeout 5"
+
+  # Helper: curl a URL, check for expected content
+  check_endpoint() {
+    local path="$1" expect_code="$2" expect_content="$3" label="$4"
+    local url="http://${IP}${path}"
+    local http_code body rc=0
+
+    body="$(curl $curl_opts -w '\n%{http_code}' "$url" 2>/dev/null)" || true
+
+    if [[ -z "$body" ]]; then
+      fail "$label — cannot reach $url"
+      return
+    fi
+
+    # Last line is the HTTP code.
+    http_code="$(echo "$body" | tail -n1)"
+    body="$(echo "$body" | sed '$d')"
+
+    if [[ "$http_code" != "$expect_code" ]]; then
+      fail "$label — expected HTTP $expect_code, got $http_code (URL: $url)"
+      return
+    fi
+
+    if [[ -n "$expect_content" ]]; then
+      if echo "$body" | grep -qi "$expect_content"; then
+        pass "$label — HTTP ${http_code}, content matched."
+      else
+        fail "$label — HTTP ${http_code}, but response missing '${expect_content}'."
+      fi
+    else
+      pass "$label — HTTP ${http_code}."
+    fi
+  }
+
+  check_endpoint "/" "200" "ARGOCD DEMO" "Landing page (/)"
+  check_endpoint "/health" "200" "\"status\":\"healthy\"" "Health endpoint (/health)"
+  check_endpoint "/api/items" "200" "" "API items (/api/items)"
+  check_endpoint "/nginx_status" "200" "" "Nginx stub status (/nginx_status)"
+
+  # Additional: verify /health returns JSON with healthy status more specifically
+  echo ""
+  echo "--- Health Endpoint Detail ---"
+  local health_body
+  health_body="$(curl $curl_opts -s "http://${IP}/health" 2>/dev/null)" || true
+
+  if [[ -n "$health_body" ]]; then
+    if echo "$health_body" | grep -q "healthy"; then
+      pass "Health endpoint reports healthy."
+    else
+      warn "Health endpoint response: $(echo "$health_body" | head -c 200)"
+    fi
+  fi
+
+  # Verify /api/items returns something that looks like an array
+  echo ""
+  echo "--- API Response Detail ---"
+  local api_body
+  api_body="$(curl $curl_opts -s "http://${IP}/api/items" 2>/dev/null)" || true
+
+  if [[ -n "$api_body" ]]; then
+    if echo "$api_body" | grep -qE '^\[|{"items"|items'; then
+      pass "API response looks like an array/object."
+    else
+      warn "API response doesn't look like expected format: $(echo "$api_body" | head -c 200)"
+    fi
+  fi
+}
+
+do_probes() {
+  section "Probe Configuration — namespace: $NAMESPACE"
+
+  # Helper to extract a probe field from a pod spec.
+  # Args: pod_name component container_index probe_type
+  get_probe() {
+    local pod="$1" container_idx="${2:-0}" probe_type="$3"
+    kubectl get pod "$pod" -n "$NAMESPACE" \
+      -o jsonpath="{.spec.containers[$container_idx].${probe_type}}" 2>/dev/null || echo ""
+  }
+
+  # Check backend pods for all three probes
+  echo "--- Backend Probes ---"
+  local be_pods
+  be_pods="$(kubectl get pods -n "$NAMESPACE" \
+    -l app.kubernetes.io/component=backend \
+    --no-headers -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)" || true
+
+  if [[ -z "$be_pods" ]]; then
+    fail "No backend pods found to inspect."
+  else
+    local be_checked=0
+    while IFS= read -r pod; do
+      [[ -z "$pod" ]] && continue
+      be_checked=$((be_checked + 1))
+      echo ""
+      echo "  Pod: $pod"
+
+      # startupProbe
+      local sp_path sp_port
+      sp_path="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].startupProbe.httpGet.path}' 2>/dev/null)" || true
+      sp_port="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].startupProbe.httpGet.port}' 2>/dev/null)" || true
+
+      if [[ -n "$sp_path" ]]; then
+        pass "startupProbe configured (${sp_path}:${sp_port})."
+      else
+        fail "startupProbe MISSING on backend pod $pod."
+      fi
+
+      # readinessProbe
+      local rp_path rp_port
+      rp_path="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].readinessProbe.httpGet.path}' 2>/dev/null)" || true
+      rp_port="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].readinessProbe.httpGet.port}' 2>/dev/null)" || true
+
+      if [[ -n "$rp_path" ]]; then
+        pass "readinessProbe configured (${rp_path}:${rp_port})."
+      else
+        fail "readinessProbe MISSING on backend pod $pod."
+      fi
+
+      # livenessProbe
+      local lp_path lp_port
+      lp_path="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].livenessProbe.httpGet.path}' 2>/dev/null)" || true
+      lp_port="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].livenessProbe.httpGet.port}' 2>/dev/null)" || true
+
+      if [[ -n "$lp_path" ]]; then
+        pass "livenessProbe configured (${lp_path}:${lp_port})."
+      else
+        fail "livenessProbe MISSING on backend pod $pod."
+      fi
+    done <<< "$be_pods"
+
+    pass "Checked $be_checked backend pod(s)."
+  fi
+
+  # Check frontend pods for readiness and liveness (no startup)
+  echo ""
+  echo "--- Frontend Probes ---"
+  local fe_pods
+  fe_pods="$(kubectl get pods -n "$NAMESPACE" \
+    -l app.kubernetes.io/component=frontend \
+    --no-headers -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)" || true
+
+  if [[ -z "$fe_pods" ]]; then
+    fail "No frontend pods found to inspect."
+  else
+    local fe_checked=0
+    while IFS= read -r pod; do
+      [[ -z "$pod" ]] && continue
+      fe_checked=$((fe_checked + 1))
+      echo ""
+      echo "  Pod: $pod"
+
+      # readinessProbe
+      local rp_path rp_port
+      rp_path="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].readinessProbe.httpGet.path}' 2>/dev/null)" || true
+      rp_port="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].readinessProbe.httpGet.port}' 2>/dev/null)" || true
+
+      if [[ -n "$rp_path" ]]; then
+        pass "readinessProbe configured (${rp_path}:${rp_port})."
+      else
+        fail "readinessProbe MISSING on frontend pod $pod."
+      fi
+
+      # livenessProbe
+      local lp_path lp_port
+      lp_path="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].livenessProbe.httpGet.path}' 2>/dev/null)" || true
+      lp_port="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].livenessProbe.httpGet.port}' 2>/dev/null)" || true
+
+      if [[ -n "$lp_path" ]]; then
+        pass "livenessProbe configured (${lp_path}:${lp_port})."
+      else
+        fail "livenessProbe MISSING on frontend pod $pod."
+      fi
+
+      # Frontend does NOT have startupProbe — that's expected
+      local sp_exists
+      sp_exists="$(kubectl get pod "$pod" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.containers[0].startupProbe}' 2>/dev/null)" || true
+
+      if [[ -z "$sp_exists" ]]; then
+        pass "No startupProbe (expected for frontend)."
+      else
+        warn "Frontend has a startupProbe ($sp_exists) — this is unusual."
+      fi
+    done <<< "$fe_pods"
+
+    pass "Checked $fe_checked frontend pod(s)."
+  fi
+}
+
+do_resources() {
+  section "Resource Governance — namespace: $NAMESPACE"
+
+  if ! kubectl get namespace "$NAMESPACE" &>/dev/null; then
+    fail "Namespace '$NAMESPACE' does not exist."
+    return 0
+  fi
+
+  # ── HPA ────────────────────────────────────────────────────────────────
+  echo "--- HorizontalPodAutoscalers ---"
+  for comp in frontend backend; do
+    local hpa_name="${comp}-hpa"
+    local hpa_exists min_rep max_rep cpu_target
+
+    hpa_exists="$(kubectl get hpa "$hpa_name" -n "$NAMESPACE" \
+      -o jsonpath='{.metadata.name}' 2>/dev/null)" || true
+
+    if [[ "$hpa_exists" == "$hpa_name" ]]; then
+      min_rep="$(kubectl get hpa "$hpa_name" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.minReplicas}' 2>/dev/null)" || true
+      max_rep="$(kubectl get hpa "$hpa_name" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.maxReplicas}' 2>/dev/null)" || true
+
+      # Extract CPU target utilization if present (Resource metric)
+      cpu_target="$(kubectl get hpa "$hpa_name" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.metrics[?(@.type=="Resource")].resource.target.averageUtilization}' 2>/dev/null)" || true
+
+      pass "${comp} HPA exists (min=$min_rep, max=$max_rep, cpu_target=${cpu_target:-N/A})."
+
+      # Show current status
+      local hpa_current hpa_desired
+      hpa_current="$(kubectl get hpa "$hpa_name" -n "$NAMESPACE" \
+        -o jsonpath='{.status.currentReplicas}' 2>/dev/null)" || true
+      hpa_desired="$(kubectl get hpa "$hpa_name" -n "$NAMESPACE" \
+        -o jsonpath='{.status.desiredReplicas}' 2>/dev/null)" || true
+
+      echo "    Current replicas: $hpa_current | Desired: $hpa_desired"
+    else
+      fail "${comp} HPA not found (expected: $hpa_name)."
+    fi
+  done
+
+  # ── PDB ────────────────────────────────────────────────────────────────
+  echo ""
+  echo "--- PodDisruptionBudgets ---"
+  for comp in frontend backend; do
+    local pdb_name="${comp}-pdb"
+    local min_avail
+
+    min_avail="$(kubectl get pdb "$pdb_name" -n "$NAMESPACE" \
+      -o jsonpath='{.spec.minAvailable}' 2>/dev/null)" || true
+
+    if [[ "$min_avail" == "1" ]]; then
+      pass "${comp} PDB configured (minAvailable: $min_avail)."
+    elif [[ -n "$min_avail" ]]; then
+      warn "${comp} PDB exists but minAvailable=$min_avail (expected 1)."
+    else
+      fail "${comp} PDB not found (expected: $pdb_name)."
+    fi
+  done
+
+  # ── NetworkPolicies ───────────────────────────────────────────────────
+  echo ""
+  echo "--- NetworkPolicies ---"
+  local np_count
+  np_count="$(kubectl get networkpolicy -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)" || true
+
+  if [[ "$np_count" -ge 4 ]]; then
+    pass "NetworkPolicies present ($np_count found, expected >=4)."
+  elif [[ "$np_count" -gt 0 ]]; then
+    warn "Only $np_count NetworkPolicy(ies) found (expected >=4)."
+  else
+    fail "No NetworkPolicies found in namespace '$NAMESPACE'."
+  fi
+
+  # List them
+  local np_names
+  np_names="$(kubectl get networkpolicy -n "$NAMESPACE" \
+    --no-headers -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)" || true
+
+  if [[ -n "$np_names" ]]; then
+    echo "    Policies:"
+    while IFS= read -r name; do
+      [[ -n "$name" ]] && echo "      - $name"
+    done <<< "$np_names"
+  fi
+
+  # ── ResourceQuota ─────────────────────────────────────────────────────
+  echo ""
+  echo "--- ResourceQuota ---"
+  local rq_name
+  rq_name="$(kubectl get resourcequota -n "$NAMESPACE" \
+    --no-headers -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)" || true
+
+  if [[ -n "$rq_name" ]]; then
+    pass "ResourceQuota configured: $(echo "$rq_name" | tr '\n' ', ' | sed 's/,$//')"
+  else
+    fail "No ResourceQuota found in namespace '$NAMESPACE'."
+  fi
+
+  # ── LimitRange ────────────────────────────────────────────────────────
+  echo ""
+  echo "--- LimitRange ---"
+  local lr_name
+  lr_name="$(kubectl get limitrange -n "$NAMESPACE" \
+    --no-headers -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)" || true
+
+  if [[ -n "$lr_name" ]]; then
+    pass "LimitRange configured: $(echo "$lr_name" | tr '\n' ', ' | sed 's/,$//')"
+  else
+    fail "No LimitRange found in namespace '$NAMESPACE'."
+  fi
+}
+
+do_observability() {
+  section "Observability Stack — namespace: $OBS_NAMESPACE"
+
+  # Check if the observability namespace exists
+  if ! kubectl get namespace "$OBS_NAMESPACE" &>/dev/null; then
+    warn "Namespace '$OBS_NAMESPACE' does not exist."
+    warn "Observability stack (Prometheus + Grafana) is not deployed."
+    echo ""
+    echo "   To deploy, run: k8s-observability deploy"
+    return 0
+  fi
+
+  # Check for Prometheus pods
+  echo "--- Prometheus ---"
+  local prom_count
+  prom_count="$(kubectl get pods -n "$OBS_NAMESPACE" \
+    -l app.kubernetes.io/name=prometheus \
+    --no-headers 2>/dev/null | wc -l)" || true
+
+  if [[ "$prom_count" -gt 0 ]]; then
+    local prom_ready
+    prom_ready="$(kubectl get pods -n "$OBS_NAMESPACE" \
+      -l app.kubernetes.io/name=prometheus \
+      --no-headers -o custom-columns=':status.phase' 2>/dev/null)" || true
+
+    local prom_running=0
+    while IFS= read -r phase; do
+      [[ "$phase" == "Running" ]] && prom_running=$((prom_running + 1))
+    done <<< "$prom_ready"
+
+    if [[ "$prom_running" -ge 1 ]]; then
+      pass "Prometheus is running ($prom_running pod(s) active)."
+    else
+      fail "Prometheus pod(s) exist but not Running."
+    fi
+  else
+    fail "No Prometheus pods found in namespace '$OBS_NAMESPACE'."
+  fi
+
+  # Check for Grafana pods
+  echo ""
+  echo "--- Grafana ---"
+  local gf_count
+  gf_count="$(kubectl get pods -n "$OBS_NAMESPACE" \
+    -l app.kubernetes.io/name=grafana \
+    --no-headers 2>/dev/null | wc -l)" || true
+
+  if [[ "$gf_count" -gt 0 ]]; then
+    local gf_ready
+    gf_ready="$(kubectl get pods -n "$OBS_NAMESPACE" \
+      -l app.kubernetes.io/name=grafana \
+      --no-headers -o custom-columns=':status.phase' 2>/dev/null)" || true
+
+    local gf_running=0
+    while IFS= read -r phase; do
+      [[ "$phase" == "Running" ]] && gf_running=$((gf_running + 1))
+    done <<< "$gf_ready"
+
+    if [[ "$gf_running" -ge 1 ]]; then
+      pass "Grafana is running ($gf_running pod(s) active)."
+    else
+      fail "Grafana pod(s) exist but not Running."
+    fi
+  else
+    fail "No Grafana pods found in namespace '$OBS_NAMESPACE'."
+  fi
+
+  # Summary
+  echo ""
+  if [[ "$prom_count" -gt 0 && "$gf_count" -gt 0 ]]; then
+    pass "Observability stack is deployed and running."
+  else
+    warn "Observability stack is partially or not deployed."
+  fi
+}
+
+do_summary() {
+  section "Health Summary — namespace: $NAMESPACE, target: $IP"
+
+  local curl_opts="-sf --max-time 5 --connect-timeout 3"
+
+  # Pods
+  local fe_r be_r
+  fe_r="$(kubectl get deployment frontend -n "$NAMESPACE" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" || true
+  be_r="$(kubectl get deployment backend -n "$NAMESPACE" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" || true
+  fe_r="${fe_r:-?}"; be_r="${be_r:?}"
+
+  if [[ "$fe_r" -ge "$FRONTEND_REPLICAS" && "$be_r" -ge "$BACKEND_REPLICAS" ]]; then
+    echo "Pods:        ✅ frontend=$fe_r/$FRONTEND_REPLICAS backend=$be_r/$BACKEND_REPLICAS"
+  else
+    echo "Pods:        ❌ frontend=$fe_r/$FRONTEND_REPLICAS backend=$be_r/$BACKEND_REPLICAS"
+    CRITICAL_FAILURES=$((CRITICAL_FAILURES + 1))
+  fi
+
+  # Endpoints
+  local ep_pass=true
+  for path in "/" "/health"; do
+    if ! curl $curl_opts -s "http://${IP}${path}" &>/dev/null; then
+      ep_pass=false
+      break
+    fi
+  done
+
+  if $ep_pass; then
+    echo "Endpoints:   ✅ reachable (/, /health)"
+  else
+    echo "Endpoints:   ❌ unreachable ($IP)"
+    CRITICAL_FAILURES=$((CRITICAL_FAILURES + 1))
+  fi
+
+  # Probes — check that at least one pod has probes configured
+  local any_probe
+  any_probe="$(kubectl get pods -n "$NAMESPACE" \
+    -l app.kubernetes.io/name=argocddemo \
+    --no-headers -o jsonpath='{.items[0].spec.containers[0].readinessProbe}' 2>/dev/null)" || true
+
+  if [[ -n "$any_probe" ]]; then
+    echo "Probes:      ✅ configured"
+  else
+    echo "Probes:      ❌ missing or cannot verify"
+    CRITICAL_FAILURES=$((CRITICAL_FAILURES + 1))
+  fi
+
+  # Resources
+  local hpa_count np_count rq lr
+  hpa_count="$(kubectl get hpa -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)" || true
+  np_count="$(kubectl get networkpolicy -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)" || true
+  rq="$(kubectl get resourcequota -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)" || true
+  lr="$(kubectl get limitrange -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)" || true
+
+  if [[ "$hpa_count" -ge 2 && "$np_count" -ge 4 && "$rq" -gt 0 && "$lr" -gt 0 ]]; then
+    echo "Resources:   ✅ HPA=$hpa_count NP=$np_count RQ=$rq LR=$lr"
+  else
+    echo "Resources:   ❌ HPA=$hpa_count NP=$np_count RQ=$rq LR=$lr (partial)"
+    CRITICAL_FAILURES=$((CRITICAL_FAILURES + 1))
+  fi
+
+  # Observability
+  local prom_ok=false
+  prom_ok="$(kubectl get pods -n "$OBS_NAMESPACE" \
+    -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | wc -l)" || true
+  local gf_ok=false
+  gf_ok="$(kubectl get pods -n "$OBS_NAMESPACE" \
+    -l app.kubernetes.io/name=grafana --no-headers 2>/dev/null | wc -l)" || true
+
+  if [[ "$prom_ok" -gt 0 && "$gf_ok" -gt 0 ]]; then
+    echo "Observability: ✅ Prometheus + Grafana running"
+  else
+    echo "Observability: ⚠️  Prometheus=$prom_ok Grafana=$gf_ok (may not be deployed)"
+    WARNINGS=$((WARNINGS + 1))
+  fi
+
+  # Final status
+  echo ""
+  if [[ "$CRITICAL_FAILURES" -eq 0 ]]; then
+    pass "Overall: HEALTHY ($WARNINGS warning(s))."
+  else
+    fail "Overall: UNHEALTHY ($CRITICAL_FAILURES critical failure(s), $WARNINGS warning(s))."
+  fi
+}
+
+do_full() {
+  echo ""
+  separator
+  echo "  k8s-healthcheck — Full Health Assessment"
+  echo "  Namespace: $NAMESPACE | Target IP: $IP | Obs NS: $OBS_NAMESPACE"
+  separator
+  echo ""
+
+  # Show cluster context
+  local ctx
+  ctx="$(kubectl config current-context 2>/dev/null)" || true
+  echo "Cluster context: ${ctx:-unknown}"
+  echo ""
+
+  do_pods
+  do_endpoints
+  do_probes
+  do_resources
+  do_observability
+
+  # ── Final report ───────────────────────────────────────────────────────
+  section "Final Report"
+
+  if [[ "$CRITICAL_FAILURES" -eq 0 && "$WARNINGS" -eq 0 ]]; then
+    pass "ALL CHECKS PASSED — system is healthy."
+  elif [[ "$CRITICAL_FAILURES" -eq 0 ]]; then
+    warn "All critical checks passed, but $WARNINGS warning(s) found."
+  else
+    fail "$CRITICAL_FAILURES critical check(s) failed, $WARNINGS warning(s)."
+    echo ""
+    echo "   Recommended next steps:"
+    echo "     1. Run 'k8s-healthcheck pods' to see detailed pod status"
+    echo "     2. Run 'k8s-healthcheck endpoints' to verify HTTP reachability"
+    echo "     3. Run 'k8s-troubleshoot logs' for container logs"
+    echo "     4. Run 'k8s-observability query <promql>' for metrics"
+  fi
+
+  separator
+}
+
+# ── main ───────────────────────────────────────────────────────────────────────
+
+check_cluster
+
+if [[ $# -lt 1 ]]; then
+  do_full
+  if [[ "$CRITICAL_FAILURES" -gt 0 ]]; then exit 1; fi
+  exit 0
+fi
+
+subcommand="$1"; shift
+
+case "$subcommand" in
+  full)         do_full "$@" ;;
+  pods)         do_pods "$@" ;;
+  endpoints)    do_endpoints "$@" ;;
+  probes)       do_probes "$@" ;;
+  resources)    do_resources "$@" ;;
+  observability) do_observability "$@" ;;
+  summary)      do_summary "$@" ;;
+  -h|--help|help) usage; exit 0 ;;
+  *) echo "ERROR: unknown subcommand '$subcommand'. Use --help for options." >&2; exit 1 ;;
+esac
+
+# Exit with non-zero if any critical failures occurred (for individual subcommands).
+if [[ "$CRITICAL_FAILURES" -gt 0 ]]; then exit 1; fi
+exit 0
